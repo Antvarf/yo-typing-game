@@ -1,0 +1,29 @@
+for each session:
+        for each player:
+                update:
+                        * game count (gamemode and overall)
+                        * mistake ratio (gamemode and overall)
+                        * score (gamemode and overall)
+                        * speed (gamemode and overall)
+                log:
+                        * score
+                        * speed
+                        * mistake ratio (in the end)
+                        * pointer to user object represented as profile link
+                        * team (if any)
+                        * winner or not
+                        amount of words entered:
+                                * correctly
+                                * incorrectly
+        * record creation and start time
+
+for each player:
+        * output creation date
+
+
+future:
+        - refactor process_word to be base class method calling .unique_effects after applying common changes
+
+endpoints:
+        * /api/sessions/<session_id>/ should return all player results now
+        * /api/players/<player_id>/ should return all player data and sessions now

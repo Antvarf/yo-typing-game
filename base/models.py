@@ -1,30 +1,45 @@
+import uuid
+
 from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import (
+    make_password,
+    check_password,
+)
 
 
-SESSION_ID_LENGTH = 64
-GAMEMODE_CHOICES = [
-    ('s', 'single'),
-    ('i', 'ironwall'),
-    ('t', 'tugofwar'),
-    ('e', 'endless'),
-]
+class GameModes(models.TextChoices):
+    SINGLE = 's', 'single'
+    IRONWALL = 'i', 'ironwall'
+    TUGOFWAR = 't', 'tugofwar'
+    ENDLESS = 'e', 'endless'
+
+
+User = get_user_model()
+_DEPRECATED_SESSION_ID_LENGTH = 64
 
 
 class Player(models.Model):
     """Stores profile data i.e. player stats and displayed name for user"""
-    nickname = models.CharField(max_length=255)
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    displayed_name = models.CharField(max_length=50)
+    user = models.OneToOneField(User, blank=True, null=True,
+                                on_delete=models.CASCADE)
 
     def __str__(self):
-        return self.nickname
+        return self.displayed_name
+
+    def save(self, *args, **kwargs):
+        is_created = self._state.adding
+        super().save(*args, **kwargs)
+        if is_created:
+            Stats.objects.create_player_stats(player=self)
 
 
 class StatsQuerySet(models.QuerySet):
     def overall(self):
         return self.filter(mode=None)
 
-    def mode_stats(self, mode: str):
+    def for_gamemode(self, mode: str):
         return self.filter(mode=mode)
 
     def updated_from_result(self, result):
@@ -32,11 +47,16 @@ class StatsQuerySet(models.QuerySet):
             stats.update_from_result(score=result.score, speed=result.speed)
         return self
 
+    def create_player_stats(self, player):
+        modes = GameModes.values
+        stats = [Stats(mode=mode, player=player) for mode in (None, *modes)]
+        return self.bulk_create(stats)
+
 
 class Stats(models.Model):
     """Stores overall and per-mode stats for each player"""
     mode: str = models.CharField(max_length=1,
-                                 choices=GAMEMODE_CHOICES, null=True)
+                                 choices=GameModes.choices, null=True)
     player: int = models.ForeignKey('Player',
                                     related_name='stats',
                                     on_delete=models.CASCADE)
@@ -94,10 +114,10 @@ class SessionPlayerResult(models.Model):
 
 class GameSession(models.Model):
     """Stores information about sessions"""
-    mode = models.CharField(max_length=1, choices=GAMEMODE_CHOICES)
+    mode = models.CharField(max_length=1, choices=GameModes.choices)
     name = models.CharField(max_length=50, unique=True)
     password = models.CharField(max_length=384, blank=True)
-    private = models.BooleanField(default=False, blank=True)
+    is_private = models.BooleanField(default=False, blank=True)
     players_max = models.PositiveIntegerField(default=0, blank=True)
     players_now = models.PositiveIntegerField(default=0, blank=True)
     creator = models.ForeignKey(
@@ -107,11 +127,27 @@ class GameSession(models.Model):
         blank=True,
         null=True,
         )
-    session_id = models.CharField(
-        max_length=SESSION_ID_LENGTH,
+    session_id = models.UUIDField(
+        editable=False,
         unique=True,
+        default=uuid.uuid4,
         )
-    finished = models.BooleanField(default=False, blank=True)
+    old_session_id = models.CharField(
+        max_length=_DEPRECATED_SESSION_ID_LENGTH,
+        unique=True,
+    )
+    is_finished = models.BooleanField(default=False, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(blank=True, null=True)
     finished_at = models.DateTimeField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and self.is_private:
+            self.set_password(self.password)
+        super().save(*args, **kwargs)
+
+    def set_password(self, password: str):
+        self.password = make_password(password)
+
+    def check_password(self, password: str):
+        return check_password(password, self.password)

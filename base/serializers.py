@@ -4,7 +4,6 @@ from secrets import (
     )
 
 from django.contrib.auth.models import AnonymousUser
-from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import (
     TokenObtainPairSerializer,
@@ -15,8 +14,7 @@ from .models import (
     Player,
     GameSession,
     SessionPlayerResult,
-    GAMEMODES,
-    SESSION_ID_LENGTH,
+    GameModes,
     )
 
 
@@ -125,7 +123,7 @@ class GameSessionSerializer(DynamicFieldsModelSerializer):
     creator = PlayerSerializer(
         fields=("username",),
         )
-    mode = CoolChoiceField(choices=GAMEMODES)
+    mode = CoolChoiceField(choices=GameModes.choices)
     players_max = serializers.IntegerField(min_value=0, required=False)
     players_now = serializers.IntegerField(
         min_value=0,

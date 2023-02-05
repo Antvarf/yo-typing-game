@@ -1,4 +1,5 @@
 import uuid
+from typing import Union
 
 from django.db import models
 from django.contrib.auth import get_user_model
@@ -77,7 +78,7 @@ class Stats(models.Model):
         ]
 
     def update_from_result(self, score: int, speed: float) -> None:
-        def new_avg(old_avg: int | float, value: int | float, n: int) -> float:
+        def new_avg(old_avg: Union[int, float], value: Union[int, float], n: int) -> float:
             return (old_avg*n + value) / (n + 1)
 
         self.best_score = max(self.best_score, score)
@@ -132,10 +133,6 @@ class GameSession(models.Model):
         unique=True,
         default=uuid.uuid4,
         )
-    old_session_id = models.CharField(
-        max_length=_DEPRECATED_SESSION_ID_LENGTH,
-        unique=True,
-    )
     is_finished = models.BooleanField(default=False, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(blank=True, null=True)

@@ -2,6 +2,8 @@ import uuid
 from typing import Union
 
 from django.db import models
+from django.db.models import Q
+from django.db.models.constraints import CheckConstraint
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import (
     make_password,
@@ -17,7 +19,6 @@ class GameModes(models.TextChoices):
 
 
 User = get_user_model()
-_DEPRECATED_SESSION_ID_LENGTH = 64
 
 
 class Player(models.Model):
@@ -117,7 +118,8 @@ class GameSession(models.Model):
     """Stores information about sessions"""
     mode = models.CharField(max_length=1, choices=GameModes.choices)
     name = models.CharField(max_length=50, unique=True)
-    password = models.CharField(max_length=384, blank=True)
+    # max_length==128 as in django.contrib.auth.models.User.password max_length
+    password = models.CharField(max_length=128, blank=True)
     is_private = models.BooleanField(default=False, blank=True)
     players_max = models.PositiveIntegerField(default=0, blank=True)
     players_now = models.PositiveIntegerField(default=0, blank=True)
@@ -137,6 +139,15 @@ class GameSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(blank=True, null=True)
     finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            CheckConstraint(
+                check=Q(password='') & Q(is_private=False)
+                      | ~Q(password='') & Q(is_private=True),
+                name='force_password_for_private',
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if self._state.adding and self.is_private:

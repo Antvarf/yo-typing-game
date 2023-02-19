@@ -14,78 +14,6 @@ from base.models import (
 )
 
 
-class PlayerTestCase(TestCase):
-    """Tests for Player model coverage.
-
-    Ensures that:
-        * Players with empty displayed_name cannot be created (min length == 1)
-        * User pointer is unique and can be null (on multiple rows)
-        * Saving player only creates initial stats when player is being created
-    """
-
-    def setUp(self):
-        User = get_user_model()
-        users = [
-            {"username": "test_user_1", "password": "test_user_1_password"},
-        ]
-        self._users = list(User.objects.create_user(**user) for user in users)
-
-    def test_user_relation(self):
-        """Test that for user field:
-            * User field values are unique
-            * NULL values for multiple rows are possible
-        """
-        player1 = Player.objects.create(displayed_name="A", user=self._users[0])
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                user_duplicate = Player.objects.create(displayed_name="B",
-                                                       user=self._users[0])
-
-        anon_player1 = Player.objects.create(displayed_name="C")
-        anon_player2 = Player.objects.create(displayed_name="D")
-
-    def test_displayed_name(self):
-        """Test that for displayed_name field:
-            * Minimum length allowed is 1
-            ? Maximum length allowed is 50
-            * Duplicates are allowed
-        """
-        p1 = Player.objects.create(displayed_name="A")
-        p1_duplicate = Player.objects.create(displayed_name=p1.displayed_name)
-        p2 = Player.objects.create(displayed_name="A"*50)
-        with self.assertRaises(ValidationError):
-            p1.displayed_name = ""
-            p1.full_clean()
-        with self.assertRaises(ValidationError):
-            p2.displayed_name += "A"
-            p2.full_clean()
-
-    def test_stats_creation(self):
-        """Tests that for every player created:
-            * Overall stats are automatically created and properly initialized
-            * For each mode stats are also created and properly initialized
-            * Stats aren't created when
-        """
-        def stats_equal_zero(stats):
-            return not any([
-                stats.avg_score,
-                stats.avg_speed,
-                stats.best_score,
-                stats.best_speed,
-                stats.games_played,
-            ])
-        player = Player.objects.create(displayed_name="A")
-        stats_qs = player.stats.all()
-
-        overall_stats = stats_qs.overall().get()
-        self.assertTrue(stats_equal_zero(overall_stats))
-
-        modes = GameModes.values
-        for mode in modes:
-            mode_stats = stats_qs.for_gamemode(mode).get()
-            self.assertTrue(stats_equal_zero(mode_stats))
-
-
 class GameSessionTestCase(TestCase):
     """Test that for each GameSession row:
         * only valid gamemodes (GAMEMODES_CHOICES) are allowed
@@ -403,6 +331,70 @@ class SessionPlayerResultTestcase(TestCase):
     #         with self.assertRaises(IntegrityError):
     #             with transaction.atomic():
     #                 self.result.save()
+
+
+class PlayerTestCase(TestCase):
+    """Tests for Player model"""
+
+    def setUp(self):
+        User = get_user_model()
+        users = [
+            {"username": "test_user_1", "password": "test_user_1_password"},
+        ]
+        self._users = list(User.objects.create_user(**user) for user in users)
+
+    def test_user_relation(self):
+        """Test that for user field:
+            * User field values are unique
+            * NULL values for multiple rows are possible
+        """
+        player1 = Player.objects.create(displayed_name="A", user=self._users[0])
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                user_duplicate = Player.objects.create(displayed_name="B",
+                                                       user=self._users[0])
+
+        anon_player1 = Player.objects.create(displayed_name="C")
+        anon_player2 = Player.objects.create(displayed_name="D")
+
+    def test_displayed_name(self):
+        """Test that for displayed_name field:
+            * Minimum length allowed is 1
+            ? Maximum length allowed is 50
+            * Duplicates are allowed
+        """
+        p1 = Player.objects.create(displayed_name="A")
+        p1_duplicate = Player.objects.create(displayed_name=p1.displayed_name)
+        p2 = Player.objects.create(displayed_name="A"*50)
+        with self.assertRaises(ValidationError):
+            p1.displayed_name = ""
+            p1.full_clean()
+        with self.assertRaises(ValidationError):
+            p2.displayed_name += "A"
+            p2.full_clean()
+
+    def test_stats_creation(self):
+        """Tests that for every player created:
+            * Initial stats for each category are zero
+        """
+        def stats_equal_zero(stats):
+            return not any([
+                stats.avg_score,
+                stats.avg_speed,
+                stats.best_score,
+                stats.best_speed,
+                stats.games_played,
+            ])
+        player = Player.objects.create(displayed_name="A")
+        player_qs = Player.objects.filter(pk=player.pk)
+
+        general_stats = player_qs.with_stats().get()
+        self.assertTrue(stats_equal_zero(general_stats))
+
+        modes = GameModes.values
+        for mode in modes:
+            mode_stats = player_qs.with_stats(mode=mode).get()
+            self.assertTrue(stats_equal_zero(mode_stats))
 
 
 class PlayerStatsTestCase(TestCase):

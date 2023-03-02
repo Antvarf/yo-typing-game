@@ -289,8 +289,9 @@ class SessionPlayerResultTestcase(TestCase):
         * mistake ratio can't have negative values
         * is_winner accepts True or False
         * correct_words, incorrect_words can't have negative values
-        * results are deleted with the deletion of player or session
-        """
+        * results are deleted with the deletion of session
+        * result player field is nullified if player is deleted
+    """
     def setUp(self):
         self.player = Player.objects.create(displayed_name="test_player_1")
         self.session = GameSession.objects.create(
@@ -432,8 +433,19 @@ class SessionPlayerResultTestcase(TestCase):
                 with transaction.atomic():
                     self.result.save()
 
-    def test_cascade_delete_from_session_and_player(self):
-        pass
+    def test_cascade_delete_from_session(self):
+        """Delete session, check."""
+        session = self.result.session
+        session.delete()
+        results = SessionPlayerResult.objects.filter(session=session)
+        self.assertFalse(results.exists())
+
+    def test_nullify_on_player_delete(self):
+        """Delete player, check."""
+        player = self.result.player
+        player.delete()
+        result = SessionPlayerResult.objects.get(id=self.result.id)
+        self.assertIsNone(result.player)
 
     # def test_correct_words(self):
     #     good_values = (0, 1, 3, 1024)

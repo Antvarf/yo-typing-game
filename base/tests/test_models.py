@@ -17,7 +17,7 @@ from base.models import (
 class GameSessionTestCase(TestCase):
     """Test that for each GameSession row:
         * only valid gamemodes (GAMEMODES_CHOICES) are allowed
-        * name can't be blank or longer than 50 chars
+        * name can be blank but not longer than 50 chars
         * password can be blank ONLY if room is not private
         * is_private is set to False when not provided
         * players_max is 0 when not provided (no restriction)
@@ -28,11 +28,14 @@ class GameSessionTestCase(TestCase):
         * created_at
         * started_at is NULL until session is started
         * finished_at is NULL until session is finished
+        * if password was set by .set_password,
+          .check_password returns True for it
+        * .save_results for an object works properly
     """
     def setUp(self):
         self.game_session = GameSession.objects.create(
             mode=GameModes.SINGLE,
-            name="Test session 1",
+            name="test_session_1",
         )
 
     def test_defaults(self):
@@ -67,7 +70,7 @@ class GameSessionTestCase(TestCase):
             * accepts defined values for GameMode
             * doesn't accept blank values
             * doesn't accept values longer than 1
-            * doesn't accept values outside of GameMode.values()
+            * doesn't accept values outside of GameMode.values
         """
         modes = GameModes.values
         for mode in modes:
@@ -76,15 +79,20 @@ class GameSessionTestCase(TestCase):
             self.game_session.save()
         invalid_modes = ('', '`', 'mode_name_too_long')
         for mode in invalid_modes:
-            with self.assertRaises(ValidationError):
+            message = f'`{mode}` is not a defined gamemode'
+            with self.assertRaisesMessage(ValidationError, message):
                 self.game_session.mode = mode
                 self.game_session.full_clean()
 
     def test_name(self):
         """Test that name field:
+            * is not required
             * can have duplicate rows
             * can't be longer than 50 characters
         """
+        empty_name_session = GameSession.objects.create(
+            mode=self.game_session.mode,
+        )
         duplicate_name_session = GameSession.objects.create(
             name=self.game_session.name,
             mode=self.game_session.mode,
@@ -142,6 +150,131 @@ class GameSessionTestCase(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 duplicate_uuid_session.save()
+
+
+class GameSessionSaveResultsTestCase(TestCase):
+    """
+    .save_results:
+        * accepts a list of dictionaries, each containing:
+            - player
+            - score
+            - speed
+            - mistake_ratio
+            - is_winner
+            - correct_words
+            - incorrect_words
+            - team (optional)
+        * team is optional
+        * exceptions raised on invalid or missing values
+        * if at least one result is invalid, none are saved
+    """
+    def setUp(self):
+        self.game_session = GameSession.objects.create(
+            mode=GameModes.SINGLE,
+            name='test_session_1',
+        )
+        self.player = Player.objects.create(
+            name='test_player_1'
+        )
+        self.other_player = Player.objects.create(
+            name='test_player_2'
+        )
+
+    def test_single_player(self):
+        result = {
+            'player': self.player,
+            'score': 1337,
+            'speed': 0.6,
+            'mistake_ratio': 0.2,
+            'is_winner': True,
+            'correct_words': 80,
+            'incorrect_words': 16,
+            'team': '',
+        }
+        self.game_session.save_results([result])
+        self.assertTrue(self.game_session.is_finished)
+        result_rec = SessionPlayerResult.objects.get(**result)
+
+    def test_multiple_players(self):
+        results = [
+            {
+                'player': self.player,
+                'score': 1337,
+                'speed': 0.6,
+                'mistake_ratio': 0.2,
+                'is_winner': True,
+                'correct_words': 80,
+                'incorrect_words': 16,
+                'team': '',
+            },
+            {
+                'player': self.other_player,
+                'score': 0xdeadbeef,
+                'speed': 0.6,
+                'mistake_ratio': 0.25,
+                'is_winner': True,
+                'correct_words': 800,
+                'incorrect_words': 200,
+                'team': '',
+            }
+        ]
+        self.game_session.save_results(results)
+        results_qs = self.game_session.results.all()
+        for r in results:
+            result_obj = results_qs.get(**r)
+
+    def test_missing_parameters(self):
+        result = {
+            'player': self.player,
+            'score': 1337,
+            'speed': 0.6,
+            'mistake_ratio': 0.2,
+            'is_winner': True,
+            'correct_words': 80,
+            'incorrect_words': 16,
+        }
+        required_params = ('player', 'score', 'speed', 'mistake_ratio',
+                           'is_winner', 'correct_words', 'incorrect_words',)
+        for param in required_params:
+            invalid_result = result.copy()
+            invalid_result.pop(param)
+            with self.assertRaises(ValidationError):
+                self.game_session.save_results(invalid_result)
+
+    def test_validation_error_rollback(self):
+        results = [
+            {
+                'player': self.player,
+                'score': 1337,
+                'speed': 0.6,
+                'mistake_ratio': 0.2,
+                'is_winner': True,
+                'correct_words': 80,
+                'incorrect_words': 16,
+                'team': '',
+            },
+            {
+                'player': self.other_player,
+            #   'score': 0xdeadbeef,
+                'speed': 0.6,
+                'mistake_ratio': 0.25,
+                'is_winner': True,
+                'correct_words': 800,
+                'incorrect_words': 200,
+                'team': '',
+            }
+        ]
+        with transaction.atomic():
+            self.game_session.save_results(results)
+        results_qs = self.game_session.results.all()
+        self.assertFalse(results_qs.exists())
+        # additional check that player's stats were not changed
+        stats = Player.objects.with_stats().get(id=self.player.id)
+        self.assertEqual(stats.best_speed, 0)
+        self.assertEqual(stats.best_score, 0)
+        self.assertEqual(stats.avg_speed, 0)
+        self.assertEqual(stats.avg_score, 0)
+        self.assertEqual(stats.games_played, 0)
 
 
 class SessionPlayerResultTestcase(TestCase):

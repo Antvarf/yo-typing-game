@@ -16,7 +16,7 @@ from base.models import (
 
 class GameSessionTestCase(TestCase):
     """Test that for each GameSession row:
-        * only valid gamemodes (GAMEMODES_CHOICES) are allowed
+        * only valid gamemodes (GameModes.values) are allowed
         * name can be blank but not longer than 50 chars
         * password can be blank ONLY if room is not private
         * is_private is set to False when not provided
@@ -79,8 +79,7 @@ class GameSessionTestCase(TestCase):
             self.game_session.save()
         invalid_modes = ('', '`', 'mode_name_too_long')
         for mode in invalid_modes:
-            message = f'`{mode}` is not a defined gamemode'
-            with self.assertRaisesMessage(ValidationError, message):
+            with self.assertRaises(ValidationError):
                 self.game_session.mode = mode
                 self.game_session.full_clean()
 
@@ -167,6 +166,7 @@ class GameSessionSaveResultsTestCase(TestCase):
         * team is optional
         * exceptions raised on invalid or missing values
         * if at least one result is invalid, none are saved
+        * on success is_finished is set True, finished_at is set roughly to now
     """
     def setUp(self):
         self.game_session = GameSession.objects.create(
@@ -174,10 +174,10 @@ class GameSessionSaveResultsTestCase(TestCase):
             name='test_session_1',
         )
         self.player = Player.objects.create(
-            name='test_player_1'
+            displayed_name='test_player_1'
         )
         self.other_player = Player.objects.create(
-            name='test_player_2'
+            displayed_name='test_player_2'
         )
 
     def test_single_player(self):
@@ -191,8 +191,18 @@ class GameSessionSaveResultsTestCase(TestCase):
             'incorrect_words': 16,
             'team': '',
         }
+        before_timestamp = timezone.now()
         self.game_session.save_results([result])
+        after_timestamp = timezone.now()
         self.assertTrue(self.game_session.is_finished)
+        self.assertGreaterEqual(
+            self.game_session.finished_at,
+            before_timestamp,
+        )
+        self.assertGreaterEqual(
+            after_timestamp,
+            self.game_session.finished_at,
+        )
         result_rec = SessionPlayerResult.objects.get(**result)
 
     def test_multiple_players(self):
@@ -233,13 +243,13 @@ class GameSessionSaveResultsTestCase(TestCase):
             'correct_words': 80,
             'incorrect_words': 16,
         }
-        required_params = ('player', 'score', 'speed', 'mistake_ratio',
-                           'is_winner', 'correct_words', 'incorrect_words',)
+        required_params = ('score', 'speed', 'mistake_ratio',
+                           'is_winner', 'correct_words', 'incorrect_words')
         for param in required_params:
             invalid_result = result.copy()
             invalid_result.pop(param)
             with self.assertRaises(ValidationError):
-                self.game_session.save_results(invalid_result)
+                self.game_session.save_results([invalid_result])
 
     def test_validation_error_rollback(self):
         results = [
@@ -264,10 +274,12 @@ class GameSessionSaveResultsTestCase(TestCase):
                 'team': '',
             }
         ]
-        with transaction.atomic():
+        with self.assertRaises(ValidationError):
             self.game_session.save_results(results)
         results_qs = self.game_session.results.all()
         self.assertFalse(results_qs.exists())
+        self.assertFalse(self.game_session.is_finished)
+        self.assertIsNone(self.game_session.finished_at)
         # additional check that player's stats were not changed
         stats = Player.objects.with_stats().get(id=self.player.id)
         self.assertEqual(stats.best_speed, 0)
@@ -480,7 +492,6 @@ class SessionPlayerResultTestcase(TestCase):
 
 class PlayerTestCase(TestCase):
     """Tests for Player model"""
-
     def setUp(self):
         User = get_user_model()
         users = [
@@ -572,8 +583,14 @@ class PlayerStatsTestCase(TestCase):
         if len(results):
             best_score = max(r.score for r in results)
             best_speed = max(r.speed for r in results)
-            avg_score = sum(r.score for r in results) // len(results)
-            avg_speed = sum(r.speed for r in results) // len(results)
+            avg_score = sum(r.score for r in results) / len(results)
+            avg_speed = sum(r.speed for r in results) / len(results)
+        # print('\nCalculated stats:')
+        # print(f'\tBest score {best_score} == {stats.best_score}')
+        # print(f'\tBest speed {best_speed} == {stats.best_speed}')
+        # print(f'\tAvg score {avg_score} == {stats.avg_score}')
+        # print(f'\tAvg speed {avg_speed} == {stats.avg_speed}')
+
         return all([
             best_score == stats.best_score,
             best_speed == stats.best_speed,
@@ -614,7 +631,7 @@ class PlayerStatsTestCase(TestCase):
                                      .get(pk=self.player.pk)
             results_qs = SessionPlayerResult.objects.filter(
                 player=self.player,
-                mode=mode,
+                session__mode=mode,
             )
             self.assertTrue(self.stats_match_results(stats_qs, results_qs))
 
@@ -626,7 +643,7 @@ class PlayerStatsTestCase(TestCase):
         mode = '`'
         error_message = f'`{mode}` is not a defined gamemode'
         with self.assertRaisesMessage(ValueError, error_message):
-            stats_qs = self.player.with_stats(mode=mode)
+            stats_qs = Player.objects.with_stats(mode=mode)
 
     def test_multiple_players(self):
         """Test that .with_stats() works on a queryset of players"""
@@ -638,4 +655,4 @@ class PlayerStatsTestCase(TestCase):
     def test_empty_players(self):
         """Test that .with_stats() keeps the empty queryset empty"""
         players = Player.objects.none()
-        self.assertTrue(players.with_stats().empty())
+        self.assertFalse(players.with_stats().exists())

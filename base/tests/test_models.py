@@ -497,18 +497,24 @@ class PlayerTestCase(TestCase):
         users = [
             {"username": "test_user_1", "password": "test_user_1_password"},
         ]
-        self._users = list(User.objects.create_user(**user) for user in users)
+        self.users = list(User.objects.create_user(**user) for user in users)
 
     def test_user_relation(self):
         """Test that for user field:
-            * User field values are unique
-            * NULL values for multiple rows are possible
+            * On User.create a related Player object is created with
+              player.displayed_name set to user.username
+            * .user field values are unique, except for NULL case
         """
-        player1 = Player.objects.create(displayed_name="A", user=self._users[0])
+        for user in self.users:
+            player = Player.objects.get(user=user)
+            self.assertEqual(player, user.player)
+            self.assertEqual(player.displayed_name, user.username)
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                user_duplicate = Player.objects.create(displayed_name="B",
-                                                       user=self._users[0])
+                user_duplicate = Player.objects.create(
+                    displayed_name="A",
+                    user=self.users[0],
+                )
 
         anon_player1 = Player.objects.create(displayed_name="C")
         anon_player2 = Player.objects.create(displayed_name="D")

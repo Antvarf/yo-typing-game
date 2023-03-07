@@ -8,6 +8,8 @@ from django.contrib.auth.hashers import (
     make_password,
     check_password,
 )
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 
 
@@ -48,6 +50,15 @@ class Player(models.Model):
 
     def __str__(self):
         return self.displayed_name
+
+
+@receiver(post_save, sender=User)
+def create_player_profile_for_user(sender, instance, created, **kwargs):
+    if created:
+        Player.objects.create(
+            user=instance,
+            displayed_name=instance.username,
+        )
 
 
 class SessionPlayerResult(models.Model):

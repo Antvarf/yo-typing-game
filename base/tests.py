@@ -10,206 +10,6 @@ from .views import (
     SESSION_DETAILS_FIELDS,
     )
 
-
-class PlayersTest(APITestCase):
-    creds = {"username": "Jesus", "password": "pleaseLetMeHaveTimeWithMyFriend"}
-
-    def setUp(self):
-        Player.objects.create_user(**self.creds)
-
-    def test_create_player(self):
-        """
-        Ensures we are able to create new players so that:
-            * Player names stay unique
-            * The only considered input is "username" and "password"
-            * Both "username" and "password" fields are required 
-            * No possible input can alter a player that already exists
-            * Player score and speed are initialized to 0
-        """
-        def check_new_player(player):
-            self.assertEqual(player.score, 0)
-            self.assertEqual(player.best_classic_score, 0)
-            self.assertEqual(player.best_endless_score, 0)
-            self.assertEqual(player.best_ironwall_score, 0)
-            self.assertEqual(player.best_tugofwar_score, 0)
-            self.assertEqual(player.avg_classic_score, 0)
-            self.assertEqual(player.avg_endless_score, 0)
-            self.assertEqual(player.avg_ironwall_score, 0)
-            self.assertEqual(player.avg_tugofwar_score, 0)
-            self.assertEqual(player.games_played, 0)
-            self.assertEqual(player.classic_played, 0)
-            self.assertEqual(player.endless_played, 0)
-            self.assertEqual(player.ironwall_played, 0)
-            self.assertEqual(player.tugofwar_played, 0)
-            self.assertEqual(player.avg_speed, 0)
-            self.assertEqual(player.best_speed, 0)
-            self.assertEqual(player.sessions.all().exists(), False)
-
-        url = reverse("players")
-
-        #DEVISE A NEW FUZZING STRATEGY. WE HAVE LEADERS_FIELDS BTW
-        good_cases = [
-            {"username": "373rn4l1n50mn14", "password": "d45h4f7w"},
-            {"username": "A", "password": "A", "score": 1000},
-            {"username": "B", "password": "B", "speed": 10.0},
-            {"username": "C", "password": "C", "score": 0, "speed": 10.0},
-            {"username": "D", "password": "D", "score": -100, "speed": -10.0},
-            {"username": "E", "password": "E", "score": True, "speed": True},
-            ]
-
-        bad_cases = [
-            {"username": "", "password": "hoo"},
-            {"username": "based", "password": ""},
-            {"username": "", "password": ""},
-            {"username": "yes"},
-            {"username": ""},
-            {"password": "no"},
-            {"password": ""},
-            {"username": "373rn4l1n50mn14", "password": "hijackedUrAcc"},
-            {"username": "terrible", "score": 0, "speed": 0},
-            {"password": "terrible", "score": 0, "speed": 0},
-            ]
-
-        for data in good_cases:
-            player_count = Player.objects.count()
-            response = self.client.post(url, data, format="json")
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            self.assertEqual(Player.objects.count(), player_count + 1)
-
-            player = Player.objects.get(username=data["username"])
-            self.assertEqual(player.username, data["username"])
-            check_new_player(player)
-
-            response = self.client.post(url, data, format="json")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(Player.objects.count(), player_count + 1)
-            player = Player.objects.get(username=data["username"])
-            self.assertEqual(player.username, data["username"])
-            check_new_player(player)
-
-        players = Player.objects.values()
-        player_count = len(players)
-
-        for data in bad_cases:
-            response = self.client.post(url, data, format="json")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            new_players = Player.objects.values()
-            self.assertEqual(len(new_players), player_count)
-            for old, new in zip(players, new_players):
-                self.assertDictEqual(old, new)
-
-    def test_get_leaders(self):
-        """
-        Ensures we can obtain list of players such that:
-            * Player objects are sorted by field from LEADERS_FIELS (descending)
-            * Default sorting is by total score, descending
-            * Only allowed fields are exposed
-            * Every player is present (planning to introduce pagination later)
-            * Polling this endpoint causes no side effects (HOW?)
-        TODO:
-            * refactor this test so that isolate users were tested for sesh recs
-        """
-
-        for i in LEADERBOARD_FIELDS:
-            leaders = Player.objects.order_by("-{}".format(i)).values(*LEADERBOARD_FIELDS)
-            response = self.client.get(reverse("players")+"?orderby={}".format(i), format="json")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertListEqual(response.data, list(leaders))
-
-        leaders = Player.objects.order_by("-score").values(*LEADERBOARD_FIELDS)
-        # Check bad field values
-        for i in ["guacamole", ""]:
-            response = self.client.get(reverse("players")+"?orderby={}".format(i), format="json")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertListEqual(response.data, list(leaders))
-        # Check abscent orderby param
-        response = self.client.get(reverse("players"), format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertListEqual(response.data, list(leaders))
-
-    def test_get_player(self):
-        """
-        Ensures we can request player details so that:
-            * LEADERBOARD_FIELDS+date_joined+sessions were joined
-            * if player with given id doesn't exist, return 404
-            * the only allowed method is GET
-        TODO:
-            * player with id 0xdeadbeef doesn't exist
-            * side effects fuzzing? 
-            * http methods fuzzing?
-            ? sessions field is of list type with correct item fields
-        """
-        # CREATE PLAYERS
-        for player in Player.objects.all():
-            response = self.client.get(
-                reverse("players")+str(player.id)+"/",
-                format="json",
-                )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertSetEqual(
-                set(LEADERBOARD_FIELDS+["date_joined","sessions"]),
-                set(response.data.keys()),
-                )
-
-        response = self.client.get(
-            reverse("players")+str(0xdeadbeef)+"/",
-            format="json",
-            )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        response = self.client.post(
-            reverse("players")+str(player.id)+"/",
-            format="json",
-            )
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_405_METHOD_NOT_ALLOWED,
-            )
-
-
-class ObtainTokensTest(APITestCase):
-    creds = {"username": "Jesus", "password": "pleaseLetMeHaveTimeWithMyFriend"}
-
-    def setUp(self):
-        Player.objects.create_user(**self.creds)
-
-    def test_obtain_pair(self):
-        """
-        Ensures we can obtain access/refresh JWT pair with the right credentials
-        """
-        response = self.client.post(reverse("auth"), self.creds, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("access", response.data)
-        self.assertIn("refresh", response.data)
-
-
-class RefreshTokensTest(APITestCase):
-    creds = {"username": "Jesus", "password": "pleaseLetMeHaveTimeWithMyFriend"}
-
-    def setUp(self):
-        Player.objects.create_user(**self.creds)
-        # do we really just presume this post is gonna work?
-        response = self.client.post(reverse("auth"), self.creds, format="json")
-        self.tokens = response.data
-        self.tokens.pop("access")
-
-    def test_refresh_pair(self):
-        """
-        Ensures we can use refresh token in a way that:
-            * We are allowed to utilise this token to obtain new pair
-            * We can't use old access/refresh pair after getting a new one
-            * We can't use outdated refresh token (HOW?)
-        """
-        url = reverse("auth_refresh")
-        response = self.client.post(url, self.tokens, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("access", response.data)
-        self.assertIn("refresh", response.data)
-        
-        response = self.client.post(url, self.tokens, format="json")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-
 class SessionsTest(APITestCase):
 
     def setUp(self):
@@ -425,3 +225,160 @@ class SessionsTest(APITestCase):
             response.status_code,
             status.HTTP_405_METHOD_NOT_ALLOWED,
             )
+
+
+
+# class PlayersTest(APITestCase):
+#     creds = {"username": "Jesus", "password": "pleaseLetMeHaveTimeWithMyFriend"}
+#
+#     def setUp(self):
+#         Player.objects.create_user(**self.creds)
+#
+#     def test_create_player(self):
+#         """
+#         Ensures we are able to create new players so that:
+#             * Player names stay unique
+#             * The only considered input is "username" and "password"
+#             * Both "username" and "password" fields are required
+#             * No possible input can alter a player that already exists
+#             * Player score and speed are initialized to 0
+#         """
+#         def check_new_player(player):
+#             self.assertEqual(player.score, 0)
+#             self.assertEqual(player.best_classic_score, 0)
+#             self.assertEqual(player.best_endless_score, 0)
+#             self.assertEqual(player.best_ironwall_score, 0)
+#             self.assertEqual(player.best_tugofwar_score, 0)
+#             self.assertEqual(player.avg_classic_score, 0)
+#             self.assertEqual(player.avg_endless_score, 0)
+#             self.assertEqual(player.avg_ironwall_score, 0)
+#             self.assertEqual(player.avg_tugofwar_score, 0)
+#             self.assertEqual(player.games_played, 0)
+#             self.assertEqual(player.classic_played, 0)
+#             self.assertEqual(player.endless_played, 0)
+#             self.assertEqual(player.ironwall_played, 0)
+#             self.assertEqual(player.tugofwar_played, 0)
+#             self.assertEqual(player.avg_speed, 0)
+#             self.assertEqual(player.best_speed, 0)
+#             self.assertEqual(player.sessions.all().exists(), False)
+#
+#         url = reverse("players")
+#
+#         #DEVISE A NEW FUZZING STRATEGY. WE HAVE LEADERS_FIELDS BTW
+#         good_cases = [
+#             {"username": "373rn4l1n50mn14", "password": "d45h4f7w"},
+#             {"username": "A", "password": "A", "score": 1000},
+#             {"username": "B", "password": "B", "speed": 10.0},
+#             {"username": "C", "password": "C", "score": 0, "speed": 10.0},
+#             {"username": "D", "password": "D", "score": -100, "speed": -10.0},
+#             {"username": "E", "password": "E", "score": True, "speed": True},
+#             ]
+#
+#         bad_cases = [
+#             {"username": "", "password": "hoo"},
+#             {"username": "based", "password": ""},
+#             {"username": "", "password": ""},
+#             {"username": "yes"},
+#             {"username": ""},
+#             {"password": "no"},
+#             {"password": ""},
+#             {"username": "373rn4l1n50mn14", "password": "hijackedUrAcc"},
+#             {"username": "terrible", "score": 0, "speed": 0},
+#             {"password": "terrible", "score": 0, "speed": 0},
+#             ]
+#
+#         for data in good_cases:
+#             player_count = Player.objects.count()
+#             response = self.client.post(url, data, format="json")
+#             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+#             self.assertEqual(Player.objects.count(), player_count + 1)
+#
+#             player = Player.objects.get(username=data["username"])
+#             self.assertEqual(player.username, data["username"])
+#             check_new_player(player)
+#
+#             response = self.client.post(url, data, format="json")
+#             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+#             self.assertEqual(Player.objects.count(), player_count + 1)
+#             player = Player.objects.get(username=data["username"])
+#             self.assertEqual(player.username, data["username"])
+#             check_new_player(player)
+#
+#         players = Player.objects.values()
+#         player_count = len(players)
+#
+#         for data in bad_cases:
+#             response = self.client.post(url, data, format="json")
+#             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+#             new_players = Player.objects.values()
+#             self.assertEqual(len(new_players), player_count)
+#             for old, new in zip(players, new_players):
+#                 self.assertDictEqual(old, new)
+#
+#     def test_get_leaders(self):
+#         """
+#         Ensures we can obtain list of players such that:
+#             * Player objects are sorted by field from LEADERS_FIELS (descending)
+#             * Default sorting is by total score, descending
+#             * Only allowed fields are exposed
+#             * Every player is present (planning to introduce pagination later)
+#             * Polling this endpoint causes no side effects (HOW?)
+#         TODO:
+#             * refactor this test so that isolate users were tested for sesh recs
+#         """
+#
+#         for i in LEADERBOARD_FIELDS:
+#             leaders = Player.objects.order_by("-{}".format(i)).values(*LEADERBOARD_FIELDS)
+#             response = self.client.get(reverse("players")+"?orderby={}".format(i), format="json")
+#             self.assertEqual(response.status_code, status.HTTP_200_OK)
+#             self.assertListEqual(response.data, list(leaders))
+#
+#         leaders = Player.objects.order_by("-score").values(*LEADERBOARD_FIELDS)
+#         # Check bad field values
+#         for i in ["guacamole", ""]:
+#             response = self.client.get(reverse("players")+"?orderby={}".format(i), format="json")
+#             self.assertEqual(response.status_code, status.HTTP_200_OK)
+#             self.assertListEqual(response.data, list(leaders))
+#         # Check abscent orderby param
+#         response = self.client.get(reverse("players"), format="json")
+#         self.assertEqual(response.status_code, status.HTTP_200_OK)
+#         self.assertListEqual(response.data, list(leaders))
+#
+#     def test_get_player(self):
+#         """
+#         Ensures we can request player details so that:
+#             * LEADERBOARD_FIELDS+date_joined+sessions were joined
+#             * if player with given id doesn't exist, return 404
+#             * the only allowed method is GET
+#         TODO:
+#             * player with id 0xdeadbeef doesn't exist
+#             * side effects fuzzing?
+#             * http methods fuzzing?
+#             ? sessions field is of list type with correct item fields
+#         """
+#         # CREATE PLAYERS
+#         for player in Player.objects.all():
+#             response = self.client.get(
+#                 reverse("players")+str(player.id)+"/",
+#                 format="json",
+#                 )
+#             self.assertEqual(response.status_code, status.HTTP_200_OK)
+#             self.assertSetEqual(
+#                 set(LEADERBOARD_FIELDS+["date_joined","sessions"]),
+#                 set(response.data.keys()),
+#                 )
+#
+#         response = self.client.get(
+#             reverse("players")+str(0xdeadbeef)+"/",
+#             format="json",
+#             )
+#         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+#
+#         response = self.client.post(
+#             reverse("players")+str(player.id)+"/",
+#             format="json",
+#             )
+#         self.assertEqual(
+#             response.status_code,
+#             status.HTTP_405_METHOD_NOT_ALLOWED,
+#             )

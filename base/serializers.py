@@ -38,6 +38,7 @@ class PlayerSerializer(serializers.ModelSerializer):
     avg_score = serializers.FloatField(read_only=True)
     avg_speed = serializers.FloatField(read_only=True)
     games_played = serializers.IntegerField(read_only=True)
+    total_score = serializers.IntegerField(read_only=True)
     # sessions = SessionPlayerResultSerializer(many=True,
     #                                          read_only=True, required=False)
 

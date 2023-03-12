@@ -54,8 +54,8 @@ class PlayerTestCase(APITestCase):
         response = self.client.get(url)
         player = response.data
         object_fields = set(
-            ['id', 'displayed_name', 'games_played',
-             'avg_score', 'best_score', 'best_speed', 'avg_speed']
+            ['id', 'displayed_name', 'games_played', 'avg_score',
+             'best_score', 'best_speed', 'avg_speed', 'total_score']
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -158,8 +158,8 @@ class PlayerTestCase(APITestCase):
     def test_player_stats(self):
         url = reverse('yo_game:player-stats')
         object_fields = set(
-            ['id', 'displayed_name', 'games_played',
-             'avg_score', 'best_score', 'best_speed', 'avg_speed']
+            ['id', 'displayed_name', 'games_played', 'avg_score',
+             'best_score', 'best_speed', 'avg_speed', 'total_score']
         )
         response = self.client.get(url)
 

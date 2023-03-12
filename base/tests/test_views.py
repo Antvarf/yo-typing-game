@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from base.models import Player
+from base.models import Player, GameSession, GameModes
 
 User = get_user_model()
 
@@ -143,8 +143,8 @@ class PlayerTestCase(APITestCase):
     def test_player_my_profile(self):
         self.client.force_authenticate(user=self.player.user)
         url = reverse('yo_game:player-my-profile')
-        response = self.client.get(url)
         object_fields = set(['id', 'displayed_name'])
+        response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data.keys(), object_fields)
@@ -155,5 +155,98 @@ class PlayerTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+
 class SessionTestCase(APITestCase):
-    pass
+    def setUp(self):
+        credentials = {
+            'username': 'test_player_1',
+            'password': 'DanielRadcliffeIsScary',
+        }
+        user = User.objects.create_user(**credentials)
+        self.player = user.player
+        self.session = GameSession.objects.create(
+            mode=GameModes.SINGLE,
+            creator=self.player,
+        )
+        self.object_fields = set(['id', 'session_id', 'mode', 'name',
+                                   'is_private', 'players_max', 'players_now'])
+
+
+    def test_create_session(self):
+        self.client.force_authenticate(user=self.player.user)
+        url = reverse('yo_game:gamesession-list')
+        data = {
+            'mode': 'single',
+            'name': 'test_session_1',
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data.keys(), self.object_fields)
+
+    def test_authenticated_create_session(self):
+        url = reverse('yo_game:gamesession-list')
+        data = {
+            'mode': 'single',
+            'name': 'test_session_1',
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data.keys(), self.object_fields)
+
+    def test_list_sessions(self):
+        url = reverse('yo_game:gamesession-list')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for obj in response.data:
+            self.assertEqual(obj.keys(), self.object_fields)
+            self.assertEqual(obj['is_private'], False)
+
+    def test_private_and_finished_sessions_are_not_listed(self):
+        private_session = GameSession.objects.create(
+            mode=GameModes.SINGLE,
+            is_private=True,
+        )
+        finished_session = GameSession.objects.create(
+            mode=GameModes.SINGLE,
+            is_finished=True,
+        )
+        url = reverse('yo_game:gamesession-list')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for obj in response.data:
+            self.assertEqual(obj.keys(), self.object_fields)
+            self.assertEqual(obj['is_private'], False)
+            self.assertNotEqual(obj['id'], private_session.id)
+            self.assertNotEqual(obj['id'], finished_session.id)
+
+    def test_retreive(self):
+        url = reverse('yo_game:gamesession-detail', args=[self.session.id])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data.keys(), self.object_fields)
+
+    def test_delete_not_allowed(self):
+        url = reverse('yo_game:gamesession-detail', args=[self.session.id])
+        response = self.client.delete(url)
+
+        self.session.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_edit_session_settings(self):
+        url = reverse('yo_game:gamesession-detail', args=[self.session.id])
+        responses = [
+            self.client.put(url),
+            self.client.patch(url),
+        ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_session_filters(self):
+        pass
+

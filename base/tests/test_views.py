@@ -139,3 +139,21 @@ class PlayerTestCase(APITestCase):
                          status.HTTP_405_METHOD_NOT_ALLOWED)
         with self.assertRaises(Player.DoesNotExist):
             Player.objects.get(**data)
+
+    def test_player_my_profile(self):
+        self.client.force_authenticate(user=self.player.user)
+        url = reverse('yo_game:player-my-profile')
+        response = self.client.get(url)
+        object_fields = set(['id', 'displayed_name'])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data.keys(), object_fields)
+
+    def test_player_my_profile_fails_unauthenticated(self):
+        url = reverse('yo_game:player-my-profile')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+class SessionTestCase(APITestCase):
+    pass

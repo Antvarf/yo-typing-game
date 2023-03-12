@@ -286,6 +286,7 @@ class GameSessionSaveResultsTestCase(TestCase):
         self.assertEqual(stats.avg_speed, 0)
         self.assertEqual(stats.avg_score, 0)
         self.assertEqual(stats.games_played, 0)
+        self.assertEqual(stats.total_score, 0)
 
 
 class SessionPlayerResultTestcase(TestCase):
@@ -545,6 +546,7 @@ class PlayerTestCase(TestCase):
                 stats.best_score,
                 stats.best_speed,
                 stats.games_played,
+                stats.total_score,
             ])
         player = Player.objects.create(displayed_name="A")
         player_qs = Player.objects.filter(pk=player.pk)
@@ -584,12 +586,15 @@ class PlayerStatsTestCase(TestCase):
     @staticmethod
     def stats_match_results(stats, results) -> bool:
         """Compares all stats with the ones calculated over given results"""
-        best_score, best_speed, avg_score, avg_speed = 0, 0, 0, 0
-        if len(results):
+        best_score, best_speed = 0, 0
+        avg_score, avg_speed, total_score = 0, 0, 0
+        games_played = len(results)
+        if games_played:
             best_score = max(r.score for r in results)
             best_speed = max(r.speed for r in results)
-            avg_score = sum(r.score for r in results) / len(results)
+            total_score = sum(r.score for r in results)
             avg_speed = sum(r.speed for r in results) / len(results)
+            avg_score = total_score / len(results)
         # print('\nCalculated stats:')
         # print(f'\tBest score {best_score} == {stats.best_score}')
         # print(f'\tBest speed {best_speed} == {stats.best_speed}')
@@ -601,6 +606,8 @@ class PlayerStatsTestCase(TestCase):
             best_speed == stats.best_speed,
             avg_score == stats.avg_score,
             avg_speed == stats.avg_speed,
+            games_played == stats.games_played,
+            total_score == stats.total_score,
         ])
 
     def setUp(self):

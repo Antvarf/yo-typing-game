@@ -1,7 +1,7 @@
 import uuid
 
 from django.db import models, transaction
-from django.db.models import Q, Max, Avg, Count
+from django.db.models import Q, Max, Avg, Count, Sum
 from django.db.models.constraints import CheckConstraint
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import (
@@ -36,6 +36,7 @@ class StatsQuerySet(models.QuerySet):
             best_speed=Max('sessions__speed', default=0, filter=condition),
             avg_score=Avg('sessions__score', default=0, filter=condition),
             avg_speed=Avg('sessions__speed', default=0, filter=condition),
+            total_score=Sum('sessions__score', default=0, filter=condition),
             games_played=Count('sessions', filter=condition),
         )
 

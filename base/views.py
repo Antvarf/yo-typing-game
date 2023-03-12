@@ -24,7 +24,7 @@ class PlayerViewSet(GenericViewSet, ListModelMixin,
         if hasattr(self, 'action'):
             if self.action in ('stats', 'retrieve'):
                 return self.queryset.with_stats()
-        return self.queryset
+        return self.queryset.all()
 
     @action(detail=False,
             methods=['GET'],
@@ -56,4 +56,4 @@ class SessionViewSet(GenericViewSet, ListModelMixin,
                     is_finished=False,
                     is_private=False
                 )
-        return self.queryset
+        return self.queryset.all()

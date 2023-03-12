@@ -119,7 +119,9 @@ class GameSessionTestCase(TestCase):
         self.game_session.is_private = True
         self.game_session.set_password('password')
         self.game_session.full_clean()
+        self.game_session.is_private = False  # Ensure this flag is enforced
         self.game_session.save()
+        self.assertTrue(self.game_session.is_private)
 
     def test_check_password(self):
         """Test that:

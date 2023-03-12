@@ -18,7 +18,7 @@ class GameSessionTestCase(TestCase):
     """Test that for each GameSession row:
         * only valid gamemodes (GameModes.values) are allowed
         * name can be blank but not longer than 50 chars
-        * password can be blank ONLY if room is not private
+        * password can't be set for public room
         * is_private is set to False when not provided
         * players_max is 0 when not provided (no restriction)
         * players_now is 0 after the session is created
@@ -103,14 +103,13 @@ class GameSessionTestCase(TestCase):
 
     def test_password_constraints(self):
         """Test that:
-            * password must be set for private rooms
+            * password can be set for private rooms
             * password can't be set for non-private rooms
             * private room with password can be saved
         """
-        with self.assertRaises(ValidationError):
-            self.game_session.is_private = True
-            self.game_session.password = ''
-            self.game_session.full_clean()
+        self.game_session.is_private = True
+        self.game_session.password = ''
+        self.game_session.full_clean()
 
         with self.assertRaises(ValidationError):
             self.game_session.is_private = False

@@ -123,9 +123,9 @@ class GameSession(models.Model):
     class Meta:
         constraints = [
             CheckConstraint(
-                check=Q(password='') & Q(is_private=False)
-                      | ~Q(password='') & Q(is_private=True),
-                name='force_password_for_private',
+                check=(Q(password='') & Q(is_private=False))
+                      | Q(is_private=True),
+                name='no_password_for_public',
             ),
         ]
 

@@ -133,7 +133,7 @@ class GameSession(models.Model):
     def save(self, *args, **kwargs):
         if self.password:
             self.is_private = True  # Enforce
-        if self._state.adding:
+        if self._state.adding and self.password:
             self.set_password(self.password)
         super().save(*args, **kwargs)
 

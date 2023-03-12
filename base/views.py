@@ -22,7 +22,7 @@ class PlayerViewSet(GenericViewSet, ListModelMixin,
 
     def get_queryset(self):
         if hasattr(self, 'action'):
-            if self.action == 'retrieve':
+            if self.action in ('stats', 'retrieve'):
                 return self.queryset.with_stats()
         return self.queryset
 
@@ -33,6 +33,12 @@ class PlayerViewSet(GenericViewSet, ListModelMixin,
             permission_classes=[IsAuthenticated])
     def player_my_profile(self, request):
         serializer = self.get_serializer(request.user.player)
+        return Response(data=serializer.data)
+
+    @action(detail=False,
+            methods=['GET'])
+    def stats(self, request):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
         return Response(data=serializer.data)
 
 

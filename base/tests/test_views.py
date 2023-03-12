@@ -155,6 +155,18 @@ class PlayerTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_player_stats(self):
+        url = reverse('yo_game:player-stats')
+        object_fields = set(
+            ['id', 'displayed_name', 'games_played',
+             'avg_score', 'best_score', 'best_speed', 'avg_speed']
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for player in response.data:
+            self.assertEqual(player.keys(), object_fields)
+
 
 class SessionTestCase(APITestCase):
     def setUp(self):

@@ -1,10 +1,7 @@
-from django.contrib.auth.models import AnonymousUser
-from rest_framework.decorators import api_view, action
-from rest_framework.mixins import UpdateModelMixin, ListModelMixin, RetrieveModelMixin
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
-from rest_framework import status
-from drf_yasg.utils import swagger_auto_schema
+from rest_framework.decorators import action
+from rest_framework.mixins import UpdateModelMixin, ListModelMixin, RetrieveModelMixin
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
 from . import serializers
@@ -23,3 +20,12 @@ class PlayerViewSet(GenericViewSet, ListModelMixin,
             if self.action == 'retrieve':
                 return self.queryset.with_stats()
         return self.queryset
+
+    @action(detail=False,
+            methods=['GET'],
+            url_path='me',
+            url_name='my-profile',
+            permission_classes=[IsAuthenticated])
+    def player_my_profile(self, request):
+        serializer = self.get_serializer(request.user.player)
+        return Response(data=serializer.data)

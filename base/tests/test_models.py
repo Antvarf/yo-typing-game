@@ -151,6 +151,31 @@ class GameSessionTestCase(TestCase):
             with transaction.atomic():
                 duplicate_uuid_session.save()
 
+    def test_start_game(self):
+        """Tests that .start_game():
+            * Sets .started_at field to timezone.now() value
+            * .started_at doesn't get updated when it's not None
+        """
+        before_timestamp = timezone.now()
+        self.game_session.start_game()
+        after_timestamp = timezone.now()
+        timestamp = self.game_session.started_at
+
+        self.assertGreaterEqual(
+            timestamp,
+            before_timestamp,
+        )
+        self.assertGreaterEqual(
+            after_timestamp,
+            timestamp,
+        )
+
+        self.game_session.start_game()
+        self.assertEqual(
+            timestamp,
+            self.game_session.started_at,
+        )
+
 
 class GameSessionSaveResultsTestCase(TestCase):
     """

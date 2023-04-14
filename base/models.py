@@ -155,3 +155,8 @@ class GameSession(models.Model):
 
     def check_password(self, password: str):
         return check_password(password, self.password)
+
+    def start_game(self):
+        if self.started_at is None:
+            self.started_at = timezone.now()
+            self.save()

@@ -1,0 +1,333 @@
+asyncapi: '2.6.0'
+info:
+  title: Jar Jar Binks typing app
+  version: '0.2'
+  contact:
+    name: JarJar
+  description:
+    Yass we slay
+
+servers:
+  public:
+    url: ws://api.gemini.com/ws
+    protocol: ws
+
+channels:
+  /play/{session_id}/:
+    parameters:
+      session_id:
+        description: |
+          The id of the session.
+        schema:
+          type: string
+          format: uuid
+    publish:
+      operationId: serverEvent
+      summary: Events sent FROM server TO client
+      message:
+        oneOf:
+          - $ref: "#/components/messages/initial_state"
+          - $ref: "#/components/messages/player_joined"
+          - $ref: "#/components/messages/player_left"
+          - $ref: "#/components/messages/player_ready"
+          - $ref: "#/components/messages/game_begins"
+          - $ref: "#/components/messages/start_game"
+          - $ref: "#/components/messages/new_word"
+          - $ref: "#/components/messages/game_over"
+          - $ref: "#/components/messages/votes_update"
+          - $ref: "#/components/messages/new_game"
+
+    subscribe:
+      operationId: playerEvent
+      summary: Events sent FROM client TO server
+      message:
+        oneOf:
+          - $ref: "#/components/messages/ready_state"
+          - $ref: "#/components/messages/word"
+          - $ref: "#/components/messages/player_vote"
+
+components:
+  messages:
+  ## Client messages
+    ready_state:
+      summary: Sent by player to change the ready state.
+      payload:
+        $ref: '#/components/schemas/ready_state'
+      tags:
+        - name: preparation_stage
+
+    word:
+      summary: Message for player to supply words to server.
+      payload:
+        $ref: '#/components/schemas/word'
+      tags:
+        - name: game_stage
+
+    player_vote:
+      summary: Message for player to select next game mode.
+      payload:
+        $ref: '#/components/schemas/player_vote'
+      tags:
+        - name: vote_stage
+
+    ## Server messages
+    initial_state:
+      summary: Provides player with the current session room state
+      payload:
+        $ref: '#/components/schemas/initial_state'
+      tags:
+        - name: preparation_stage
+
+    player_joined:
+      summary: Notification about player joining the room.
+      payload:
+        $ref: '#/components/schemas/player_joined'
+      tags:
+        - name: preparation_stage
+
+    player_left:
+      summary: Notification about player joining the room.
+      payload:
+        $ref: '#/components/schemas/player_left'
+      tags:
+        - name: preparation_stage
+        - name: game_stage
+
+    player_ready:
+      summary: Notifies about player changing the ready status.
+      payload:
+        $ref: '#/components/schemas/player_ready'
+      tags:
+        - name: preparation_stage
+
+    game_begins:
+      summary: |
+        Notifies that game will shortly (after a specified countdown) begin
+      payload:
+        $ref: '#/components/schemas/game_begins'
+      tags:
+        - name: preparation_stage
+
+    start_game:
+      summary: Starts the game.
+      payload:
+        $ref: '#/components/schemas/start_game'
+      tags:
+        - name: preparation_stage
+
+    new_word:
+      summary: Supplies a new word when any player submits one.
+      payload:
+        $ref: '#/components/schemas/new_word'
+      tags:
+        - name: game_stage
+
+    game_over:
+      summary: Notifies the game is over with game results.
+      payload:
+        $ref: '#/components/schemas/game_over'
+      tags:
+        - name: game_stage
+
+    votes_update:
+      summary: Contains the updated vote states.
+      payload:
+        $ref: '#/components/schemas/votes_update'
+      tags:
+        - name: vote_stage
+
+    new_game:
+      summary: Contains the info about the next game.
+      payload:
+        $ref: '#/components/schemas/new_game'
+      tags:
+        - name: vote_stage
+
+  schemas:
+    ## General schema definitions
+    event:
+      type: object
+      discriminator: event
+      properties:
+        event:
+          type: string
+      required:
+        - event
+
+    player_schema:
+      type: object
+      properties:
+        local_id:
+          type: integer
+        displayed_name:
+          type: string
+        score:
+          type: integer
+        speed:
+          type: number
+        time_left:
+          type: number
+      required:
+        - local_id
+        - displayed_name
+        - score
+        - speed
+        - time_left
+
+    game_results:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/player_schema'
+        - properties:
+            is_winner:
+              type: boolean
+          required:
+            - is_winner
+
+    player_related_event:
+      type: object
+      properties:
+        player:
+          $ref: '#/components/schemas/player_schema'
+        players:
+          type: array
+          # TODO: implement mode-dependent definitions
+          items:
+            - $ref: '#/components/schemas/player_schema'
+
+    ## Server message schemas
+    initial_state:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: object
+              allOf:
+                - $ref: '#/components/schemas/player_related_event'
+                - properties:
+                    words:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - words
+
+    player_joined:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              $ref: '#/components/schemas/player_related_event'
+
+    player_left:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              $ref: '#/components/schemas/player_related_event'
+
+    player_ready:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              $ref: '#/components/schemas/player_related_event'
+
+    game_begins:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: integer
+          required:
+            - data
+
+    start_game:
+      type: object
+      $ref: '#/components/schemas/event'
+
+    new_word:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: string
+          required:
+            - data
+
+    game_over:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              $ref: '#/components/schemas/game_results'
+
+    votes_update:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  mode:
+                    type: string
+                  vote_count:
+                    type: integer
+                required:
+                  - mode
+                  - vote_count
+          required:
+            - data
+
+    new_game:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: string
+              format: uuid
+              description: session_id of the new session created
+          required:
+            - data
+
+    ## Client message schemas
+    ready_state:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: boolean
+          required:
+            - data
+
+    word:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            word:
+              type: string
+          required:
+            - word
+
+    player_vote:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/event'
+        - properties:
+            data:
+              type: string
+          required:
+            - data

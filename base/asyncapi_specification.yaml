@@ -21,15 +21,25 @@ channels:
         schema:
           type: string
           format: uuid
+    bindings:
+      ws:
+        query:
+          type: object
+          properties:
+            username:
+              type: string
+              description: the displayed name of the player
+            auth_token:
+              type: string
+              format: JWT
+              description: authentication token for player (if authenticated)
     publish:
       operationId: serverEvent
       summary: Events sent FROM server TO client
       message:
         oneOf:
           - $ref: "#/components/messages/initial_state"
-          - $ref: "#/components/messages/player_joined"
-          - $ref: "#/components/messages/player_left"
-          - $ref: "#/components/messages/player_ready"
+          - $ref: "#/components/messages/players_update"
           - $ref: "#/components/messages/game_begins"
           - $ref: "#/components/messages/start_game"
           - $ref: "#/components/messages/new_word"
@@ -78,27 +88,16 @@ components:
       tags:
         - name: preparation_stage
 
-    player_joined:
-      summary: Notification about player joining the room.
+    players_update:
+      summary: |
+        Notifies about any updates to the players state
+        (e.g. players joining/leaving/changing ready state)
       payload:
-        $ref: '#/components/schemas/player_joined'
-      tags:
-        - name: preparation_stage
-
-    player_left:
-      summary: Notification about player joining the room.
-      payload:
-        $ref: '#/components/schemas/player_left'
+        $ref: '#/components/schemas/players_update'
       tags:
         - name: preparation_stage
         - name: game_stage
-
-    player_ready:
-      summary: Notifies about player changing the ready status.
-      payload:
-        $ref: '#/components/schemas/player_ready'
-      tags:
-        - name: preparation_stage
+        - name: vote_stage
 
     game_begins:
       summary: |
@@ -167,12 +166,15 @@ components:
           type: number
         time_left:
           type: number
+        is_ready:
+          type: boolean
       required:
         - local_id
         - displayed_name
         - score
         - speed
         - time_left
+        - is_ready
 
     game_results:
       type: object
@@ -187,8 +189,6 @@ components:
     player_related_event:
       type: object
       properties:
-        player:
-          $ref: '#/components/schemas/player_schema'
         players:
           type: array
           # TODO: implement mode-dependent definitions
@@ -206,6 +206,8 @@ components:
               allOf:
                 - $ref: '#/components/schemas/player_related_event'
                 - properties:
+                    player:
+                      $ref: '#/components/schemas/player_schema'
                     words:
                       type: array
                       items:
@@ -213,23 +215,7 @@ components:
                   required:
                     - words
 
-    player_joined:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/event'
-        - properties:
-            data:
-              $ref: '#/components/schemas/player_related_event'
-
-    player_left:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/event'
-        - properties:
-            data:
-              $ref: '#/components/schemas/player_related_event'
-
-    player_ready:
+    players_update:
       type: object
       allOf:
         - $ref: '#/components/schemas/event'

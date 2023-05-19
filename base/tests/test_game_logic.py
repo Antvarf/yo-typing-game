@@ -100,7 +100,7 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(player_object['score'], 0)
         self.assertEqual(player_object['speed'], 0)
 
-        self.assertEqual(initial_state_event.type, Event.INITIAL_STATE)
+        self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
         self.assertEqual(initial_state_event.target, Event.TARGET_PLAYER)
         self.assertIs(type(initial_state_event.data['words']), list)
         self.assertTrue(all(
@@ -217,7 +217,7 @@ class SingleGameControllerTestCase(TestCase):
             data=PlayerMessage(player=self.other_player_record),
         )
         p1_ready_event = Event(
-            type=Event.READY_STATE,
+            type=Event.PLAYER_READY_STATE,
             data=PlayerMessage(player=self.player_record, payload=True),
         )
         p2_left_event = Event(
@@ -304,7 +304,7 @@ class SingleGameControllerTestCase(TestCase):
             data=PlayerMessage(player=self.player_record)
         )
         ready_event = Event(
-            type=Event.READY_STATE,
+            type=Event.PLAYER_READY_STATE,
             data=PlayerMessage(player=self.player_record, payload=True)
         )
         self.controller.player_event(join_event)
@@ -338,7 +338,7 @@ class SingleGameControllerTestCase(TestCase):
             data=PlayerMessage(player=self.other_player_record)
         )
         p1_ready_event = Event(
-            type=Event.READY_STATE,
+            type=Event.PLAYER_READY_STATE,
             data=PlayerMessage(player=self.player_record, payload=True)
         )
         players_before = self.session_record.players_now
@@ -366,7 +366,7 @@ class SingleGameControllerTestCase(TestCase):
             data=PlayerMessage(player=self.player_record)
         )
         ready_event = Event(
-            type=Event.READY_STATE,
+            type=Event.PLAYER_READY_STATE,
             data=PlayerMessage(player=self.player_record, payload=True)
         )
         self.controller.player_event(join_event)

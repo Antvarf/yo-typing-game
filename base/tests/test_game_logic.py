@@ -1,9 +1,30 @@
 from django.db import transaction
 from django.test import TestCase
 
-from base.game_logic import Event, PlayerMessage, InvalidGameStateException, ControllerExistsException, \
-    SingleGameController
-from base.models import GameSession, Player, GameModes
+from base.game_logic import (
+    Event,
+    PlayerMessage,
+    InvalidGameStateException,
+    ControllerExistsException,
+    SingleGameController,
+)
+from base.models import (
+    GameSession,
+    Player,
+    GameModes,
+)
+
+
+class WordListProviderTestCase(TestCase):
+    pass
+
+
+class BasePlayerControllerTestCase(TestCase):
+    pass
+
+
+class PlayerPlainControllerTestCase(TestCase):
+    pass
 
 
 class SingleGameControllerTestCase(TestCase):
@@ -33,6 +54,7 @@ class SingleGameControllerTestCase(TestCase):
             - 'new_game'
             - 'start_game'
         * make this test case inheritable so that it applies to every game mode
+        * test invalid events handling
     """
     controller_cls = SingleGameController
 
@@ -111,7 +133,7 @@ class SingleGameControllerTestCase(TestCase):
         self.assertIn('players', initial_state_event.data)
 
         self.assertEqual(player_joined_event.target, Event.TARGET_ALL)
-        self.assertEqual(player_joined_event.type, Event.SERVER_PLAYER_JOINED)
+        self.assertEqual(player_joined_event.type, Event.SERVER_PLAYERS_UPDATE)
         self.assertIn('players', player_joined_event.data)
 
         self.assertEqual(self.session_record.players_now, players_before + 1)
@@ -199,7 +221,7 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(player_object['speed'], 0)
 
         self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-        self.assertEqual(server_events[0].type, Event.SERVER_PLAYER_LEFT)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
         self.assertIn('players', server_events[0].data)
         self.assertEqual(self.session_record.players_now, players_before)
 
@@ -232,7 +254,7 @@ class SingleGameControllerTestCase(TestCase):
         self.session_record.refresh_from_db()
 
         self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-        self.assertEqual(server_events[0].type, Event.SERVER_PLAYER_LEFT)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
         self.assertEqual(server_events[1].target, Event.TARGET_ALL)
         self.assertEqual(server_events[1].type, Event.SERVER_GAME_BEGINS)
         self.assertEqual(self.session_record.players_now, players_before + 1)
@@ -272,9 +294,9 @@ class SingleGameControllerTestCase(TestCase):
         self.session_record.refresh_from_db()
 
         self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-        self.assertEqual(server_events[0].type, Event.SERVER_PLAYER_LEFT)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
         self.assertEqual(server_events[1].target, Event.TARGET_ALL)
-        self.assertEqual(server_events[1].type, Event.SERVER_NEW_SESSION)
+        self.assertEqual(server_events[1].type, Event.SERVER_NEW_GAME)
         self.assertEqual(self.session_record.players_now, players_before + 1)
         self.assertIsNotNone(self.session_record.finished_at)
 

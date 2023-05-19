@@ -34,21 +34,21 @@ class Event:
     SERVER_START_GAME = 'start_game'
     SERVER_NEW_WORD = 'new_word'
     SERVER_GAME_OVER = 'game_over'
+    SERVER_MODES_AVAILABLE = 'modes_available'  # TODO: add event to asyncapi spec
     SERVER_VOTES_UPDATE = 'votes_update'
     SERVER_NEW_GAME = 'new_game'
     SERVER_CLOSE_CONNECTION = 'close_connection'
     SERVER_TICK = 'tick'
     # SERVER_USERNAME_SWITCH = 'username_switch'
-    SERVER_MODES_AVAILABLE = 'modes_available'
 
     TRIGGER_TICK = 'tick'
 
     TARGET_ALL = 'all'
     TARGET_PLAYER = 'player'
 
-    target: str
     type: str
     data: typing.Any
+    target: str = None
 
 
 class PlayerJoinRefusedError(Exception):
@@ -255,7 +255,7 @@ class BaseGame(ABC):
             Event.PLAYER_LEFT: self._handle_player_leave,
             Event.PLAYER_WORD: self._handle_word,
             Event.TRIGGER_TICK: self._handle_tick,
-            Event.PLAYER_READY: self._handle_player_ready,
+            Event.PLAYER_READY_STATE: self._handle_player_ready,
             Event.PLAYER_MODE_VOTE: self._handle_player_vote,
         }
         if hasattr(self, 'get_extending_event_handlers'):
@@ -279,7 +279,7 @@ class BaseGame(ABC):
             players_message = {'players': self._players}
             events.append(
                 Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_PLAYER_JOINED, data=players_message),
+                      type=Event.SERVER_PLAYERS_UPDATE, data=players_message),
             )
 
             words_message = {'words': self._word_provider.words}
@@ -296,7 +296,7 @@ class BaseGame(ABC):
 
         message = {'players': self._players}
         event = Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_PLAYER_LEFT, data=message)
+                      type=Event.SERVER_PLAYERS_UPDATE, data=message)
         return [event]
 
     def _handle_word(self, player, word) -> list[Event]:
@@ -328,13 +328,11 @@ class BaseGame(ABC):
         if self._state is self.STATE_PREPARING:
             self._update_players(data)
             event = Event(target=Event.TARGET_ALL,
-                          type=Event.SERVER_PLAYER_READY, data=self._players)
+                          type=Event.SERVER_PLAYERS_UPDATE, data=self._players)
             events.append(event)
             if self._can_start():
-                event = Event(target=Event.TARGET_ALL,
-                              type=Event.SERVER_START_GAME, data={})
-                events.append(event)
-                self._start_game()
+                start_game_event = self._start_game()
+                events.append(start_game_event)
         return events
 
     def _handle_player_vote(self, data):
@@ -342,7 +340,7 @@ class BaseGame(ABC):
         if self._state is self.STATE_VOTING:
             self._update_players(data)
             event = Event(target=Event.TARGET_ALL,
-                          type=Event.SERVER_NEW_VOTE, data=self._players)
+                          type=Event.SERVER_VOTES_UPDATE, data=self._players)
             events.append(event)
             if self._voting_finished():
                 event = Event(target=Event.TARGET_ALL,
@@ -373,10 +371,32 @@ class BaseGame(ABC):
             return False
         return True
 
-    def _start_game(self):
+    def _start_game(self) -> Event:
+        """
+        Updates controller and database record state to STATE_PLAYING.
+
+        NOTE: this function is used heavily in unit tests to alter game state.
+        """
         self._state = self.STATE_PLAYING
         self._session.start_game()
-        return
+
+        event = Event(target=Event.TARGET_ALL,
+                      type=Event.SERVER_START_GAME, data={})
+        return event
+
+    def _game_over(self) -> Event:
+        """
+        Updates controller and database record state to STATE_VOTING.
+
+        NOTE: this function is used heavily in unit tests to alter game state.
+        """
+        self._state = self.STATE_VOTING
+        self._session.save_results()
+        # TODO: rename .save_results() to .end_game() for readability
+
+        event = Event(target=Event.TARGET_ALL,
+                      type=Event.SERVER_GAME_OVER, data=self._results())
+        return event
 
     def _voting_finished(self):
         return self._vote_count == self._players_count

@@ -122,6 +122,12 @@ class LocalPlayer:
 
 
 class BasePlayerController(ABC):
+    """
+    A class responsible for:
+        * tracking last local player id added
+        * updating player scores when word is submitted
+        * maintaining players representation for display
+    """
     def __init__(self, session: GameSession):
         self._players_dict = {}
         self._local_id_counter = 0
@@ -269,9 +275,12 @@ class BaseGame(ABC):
         except KeyError:
             raise EventTypeNotDefinedError
 
-    ### Event handlers start here ##
+    ### Event handlers start here ###
 
-    def _handle_player_join(self, player) -> list[Event]:
+    def _handle_player_join(self, player: Player) -> list[Event]:
+        """
+        Event handler for player joining the session.
+        """
         if self._can_player_join():
             self._add_player(player)
             events = []
@@ -349,12 +358,12 @@ class BaseGame(ABC):
                 events.append(event)
         return events
 
-    def _init_player(self, player: dict):
-        player_obj = self.player_class(**player)
+    def _init_player(self, player: Player):
+        player_obj = self.player_class(player)
         player_obj.add_word_iterator(self._word_provider.words)
         return player_obj
 
-    def _add_player(self, player: dict):
+    def _add_player(self, player: Player):
         player_obj = self._init_player(player)
         self._player_controller.add_player(player_obj)
 

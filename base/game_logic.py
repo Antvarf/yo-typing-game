@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import typing
 from functools import cached_property
 
@@ -17,6 +17,12 @@ from base.models import (
 class PlayerMessage:
     player: Player
     payload: typing.Any = None
+
+    def to_dict(self):
+        data = asdict(self)
+        if self.payload is None:
+            data.pop('payload')
+        return data
 
 
 @dataclass
@@ -49,6 +55,10 @@ class Event:
     type: str
     data: typing.Any
     target: str = None
+
+    def is_valid(self):
+        # TODO: implement validation logic
+        return True
 
 
 class PlayerJoinRefusedError(Exception):
@@ -103,22 +113,32 @@ class WordListProvider:
 @dataclass
 class LocalPlayer:
     local_id: int
-    name: str
-    score: int
-    speed: float
+    displayed_name: str
+    score: int = 0
+    speed: float = 0
     correct_words: int = 0
     incorrect_words: int = 0
+    total_word_length: int = 0
     time_left: float = None
     is_ready: bool = False
     voted_for: str = None
+
+    def __init__(self, player: Player):
+        super().__init__()
+        self._next_word = None
+        self.displayed_name = player.displayed_name
+        self.local_id = player.pk
 
     def add_word_iterator(self, words: list[str]):
         self._next_word = iter(words)
 
     def get_next_word(self) -> str:
-        if not hasattr(self, '_next_word'):
+        if self._next_word is None:
             return
         return next(self._next_word)
+
+    def to_dict(self):
+        return asdict(self)
 
 
 class BasePlayerController(ABC):
@@ -127,19 +147,19 @@ class BasePlayerController(ABC):
         * tracking last local player id added
         * updating player scores when word is submitted
         * maintaining players representation for display
+        * updating player related fields on session record
     """
     def __init__(self, session: GameSession):
         self._players_dict = {}
-        self._local_id_counter = 0
         self._players_repr = self._init_repr()
         self._last_tick = None
         self.session = session
 
     def add_player(self, player: LocalPlayer):
-        player.local_id = self._get_local_id()
-        player.total_word_length = 0
         self._players_dict[player.local_id] = player
         self._insert_into_repr(player)
+        self.session.players_now += 1
+        self.session.save()
 
     def get_player(self, local_id: int):
         return self._players_dict.get(local_id, None)
@@ -157,6 +177,10 @@ class BasePlayerController(ABC):
     @property
     def players_data(self):
         return self._players_repr
+
+    @property
+    def player_count(self):
+        return len(self._players_dict)
 
     @property
     def time_elapsed(self):
@@ -197,13 +221,13 @@ class PlayerPlainController(BasePlayerController):
         return dict()
 
     def _insert_into_repr(self, player):
-        self._players_repr[player.local_id] = player.as_dict()
+        self._players_repr[player.local_id] = asdict(player)
 
     def _remove_from_repr(self, player):
         self._players_repr.pop(player.local_id)
 
     def _update_repr_from_object(self, player):
-        self._players_repr[player.local_id].update(player.as_dict())
+        self._players_repr[player.local_id].update(asdict(player))
 
     def _handle_word(self, player: LocalPlayer, word: str):
         if player.get_next_word() == word:
@@ -248,7 +272,7 @@ class BaseGame(ABC):
         if not event.is_valid():
             raise InvalidMessageError
         handler = self._get_event_handler(event.type)
-        events = handler(**event.data)
+        events = handler(**event.data.to_dict())
         return events
 
     @property
@@ -258,11 +282,11 @@ class BaseGame(ABC):
     def _init_event_handlers(self):
         event_handlers = {
             Event.PLAYER_JOINED: self._handle_player_join,
-            Event.PLAYER_LEFT: self._handle_player_leave,
-            Event.PLAYER_WORD: self._handle_word,
-            Event.TRIGGER_TICK: self._handle_tick,
-            Event.PLAYER_READY_STATE: self._handle_player_ready,
-            Event.PLAYER_MODE_VOTE: self._handle_player_vote,
+            # Event.PLAYER_LEFT: self._handle_player_leave,
+            # Event.PLAYER_WORD: self._handle_word,
+            # Event.TRIGGER_TICK: self._handle_tick,
+            # Event.PLAYER_READY_STATE: self._handle_player_ready,
+            # Event.PLAYER_MODE_VOTE: self._handle_player_vote,
         }
         if hasattr(self, 'get_extending_event_handlers'):
             extensions = self.get_extending_event_handlers()
@@ -281,104 +305,120 @@ class BaseGame(ABC):
         """
         Event handler for player joining the session.
         """
-        if self._can_player_join():
-            self._add_player(player)
-            events = []
-
-            players_message = {'players': self._players}
-            events.append(
-                Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_PLAYERS_UPDATE, data=players_message),
-            )
-
-            words_message = {'words': self._word_provider.words}
-            events.append(
-                Event(target=Event.TARGET_PLAYER,
-                      type=Event.SERVER_WORDS, data=words_message),
-            )
-
+        events = []
+        if self._can_player_join(player):
+            # TODO: check if player is present (use Player id for local_id ?)
+            player_obj = self._add_player(player)
+            events.append(self._get_initial_state_event(player_obj))
+            events.append(self._get_players_update_event())
             return events
         raise PlayerJoinRefusedError
+    #
+    # def _handle_player_leave(self, player) -> list[Event]:
+    #     self._remove_player(player)
+    #
+    #     message = {'players': self._players}
+    #     event = Event(target=Event.TARGET_ALL,
+    #                   type=Event.SERVER_PLAYERS_UPDATE, data=message)
+    #     return [event]
+    #
+    # def _handle_word(self, player, word) -> list[Event]:
+    #     self._player_controller.handle_word(player, word)
+    #     message = {'word': self._word_provider.get_new_word(),
+    #                'players': self._players}
+    #     event = Event(target=Event.TARGET_ALL,
+    #                   type=Event.SERVER_NEW_WORD, data=message)
+    #     return [event]
+    #
+    # def _handle_tick(self) -> list[Event]:
+    #     events = []
+    #     if self._state is self.STATE_PLAYING:
+    #         self._player_controller.make_tick()
+    #         tick_event = Event(type=Event.SERVER_TICK,
+    #                            target=Event.TARGET_ALL, data=self._players)
+    #         events.append(tick_event)
+    #     elif self._state is self.STATE_VOTING:
+    #         # TODO: voting protocol
+    #         if self._vote_timeout():
+    #             event = Event(target=Event.TARGET_ALL,
+    #                           type=Event.SERVER_START_GAME,
+    #                           data=self._vote_results)
+    #             events.append(event)
+    #     return events
+    #
+    # def _handle_player_ready(self, data) -> list[Event]:
+    #     events = []
+    #     if self._state is self.STATE_PREPARING:
+    #         self._update_players(data)
+    #         event = Event(target=Event.TARGET_ALL,
+    #                       type=Event.SERVER_PLAYERS_UPDATE, data=self._players)
+    #         events.append(event)
+    #         if self._can_start():
+    #             start_game_event = self._start_game()
+    #             events.append(start_game_event)
+    #     return events
+    #
+    # def _handle_player_vote(self, data):
+    #     events = []
+    #     if self._state is self.STATE_VOTING:
+    #         self._update_players(data)
+    #         event = Event(target=Event.TARGET_ALL,
+    #                       type=Event.SERVER_VOTES_UPDATE, data=self._players)
+    #         events.append(event)
+    #         if self._voting_finished():
+    #             event = Event(target=Event.TARGET_ALL,
+    #                           type=Event.SERVER_START_GAME,
+    #                           data=self._vote_results)
+    #             events.append(event)
+    #     return events
 
-    def _handle_player_leave(self, player) -> list[Event]:
-        self._remove_player(player)
+    def _get_initial_state_event(self, player: LocalPlayer) -> Event:
+        event = Event(
+            target=Event.TARGET_PLAYER,
+            type=Event.SERVER_INITIAL_STATE,
+            data={
+                'player': player.to_dict(),
+                'players': self._players,
+                'words': self._word_provider.words,
+            }
+        )
+        return event
 
-        message = {'players': self._players}
+    def _get_players_update_event(self) -> Event:
         event = Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_PLAYERS_UPDATE, data=message)
-        return [event]
-
-    def _handle_word(self, player, word) -> list[Event]:
-        self._player_controller.handle_word(player, word)
-        message = {'word': self._word_provider.get_new_word(),
-                   'players': self._players}
-        event = Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_NEW_WORD, data=message)
-        return [event]
-
-    def _handle_tick(self) -> list[Event]:
-        events = []
-        if self._state is self.STATE_PLAYING:
-            self._player_controller.make_tick()
-            tick_event = Event(type=Event.SERVER_TICK,
-                               target=Event.TARGET_ALL, data=self._players)
-            events.append(tick_event)
-        elif self._state is self.STATE_VOTING:
-            # TODO: voting protocol
-            if self._vote_timeout():
-                event = Event(target=Event.TARGET_ALL,
-                              type=Event.SERVER_START_GAME,
-                              data=self._vote_results)
-                events.append(event)
-        return events
-
-    def _handle_player_ready(self, data) -> list[Event]:
-        events = []
-        if self._state is self.STATE_PREPARING:
-            self._update_players(data)
-            event = Event(target=Event.TARGET_ALL,
-                          type=Event.SERVER_PLAYERS_UPDATE, data=self._players)
-            events.append(event)
-            if self._can_start():
-                start_game_event = self._start_game()
-                events.append(start_game_event)
-        return events
-
-    def _handle_player_vote(self, data):
-        events = []
-        if self._state is self.STATE_VOTING:
-            self._update_players(data)
-            event = Event(target=Event.TARGET_ALL,
-                          type=Event.SERVER_VOTES_UPDATE, data=self._players)
-            events.append(event)
-            if self._voting_finished():
-                event = Event(target=Event.TARGET_ALL,
-                              type=Event.SERVER_START_GAME,
-                              data=self._vote_results)
-                events.append(event)
-        return events
+                      type=Event.SERVER_PLAYERS_UPDATE,
+                      data={'players': self._players})
+        return event
 
     def _init_player(self, player: Player):
         player_obj = self.player_class(player)
         player_obj.add_word_iterator(self._word_provider.words)
         return player_obj
 
-    def _add_player(self, player: Player):
+    def _add_player(self, player: Player) -> LocalPlayer:
         player_obj = self._init_player(player)
         self._player_controller.add_player(player_obj)
+        # TODO: don't rely on object modification
+        return player_obj
 
     def _remove_player(self, player: dict):
         self._player_controller.remove_player(player['local_id'])
 
-    def _get_player(self, player: dict):
-        return self._player_controller.get_player(player['local_id'])
+    # def _get_player(self, player: dict) -> :
+    #     return self._player_controller.get_player(player['local_id'])
 
-    def _can_player_join(self):
-        if 0 < self._session.max_players <= self._players_count:
+    def _can_player_join(self, player: Player) -> bool:
+        if 0 < self._session.players_max <= self._player_count:
             return False
         if self._state is not self.STATE_PREPARING:
             return False
+        if self._player_controller.get_player(player.pk) is not None:
+            return False
         return True
+
+    @property
+    def _player_count(self):
+        return self._player_controller.player_count
 
     def _start_game(self) -> Event:
         """
@@ -400,64 +440,70 @@ class BaseGame(ABC):
         NOTE: this function is used heavily in unit tests to alter game state.
         """
         self._state = self.STATE_VOTING
-        self._session.save_results()
+        self._session.save_results(self.results)
         # TODO: rename .save_results() to .end_game() for readability
 
         event = Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_GAME_OVER, data=self._results())
+                      type=Event.SERVER_GAME_OVER, data=self.results)
         return event
 
-    def _voting_finished(self):
-        return self._vote_count == self._players_count
-
     @property
-    def _players_count(self):
-        return len(self._players_list)
-
-    @property
-    def _vote_count(self):
-        return len([vote for vote in self._vote_list
-                    if vote['mode'] is not None])
-
     @abstractmethod
-    @property
-    def _vote_list(self):
+    def results(self):
         pass
 
-    @abstractmethod
-    @property
-    def _players_list(self):
-        pass
+    # def _voting_finished(self):
+    #     return self._vote_count == self._players_count
+    #
+    # @property
+    # def _players_count(self):
+    #     return len(self._players_list)
+    #
+    # @property
+    # def _vote_count(self):
+    #     return len([vote for vote in self._vote_list
+    #                 if vote['mode'] is not None])
 
-    @abstractmethod
-    def _insert_player_into_repr(self, player):
-        pass
-
-    @abstractmethod
-    def _remove_player_from_repr(self, player):
-        pass
-
-    @abstractmethod
-    def _is_valid_message(self):
-        pass
-
-    @abstractmethod
-    def _check_vote_timeout(self):
-        pass
-
-    @abstractmethod
-    def _update_players(self, players):
-        pass
-
-    @abstractmethod
-    def _can_start(self):
-        pass
-
-    @abstractmethod
-    def _switch_team(self):
-        pass
+    # @abstractmethod
+    # @property
+    # def _vote_list(self):
+    #     pass
+    #
+    # @abstractmethod
+    # @property
+    # def _players_list(self):
+    #     pass
+    #
+    # @abstractmethod
+    # def _insert_player_into_repr(self, player):
+    #     pass
+    #
+    # @abstractmethod
+    # def _remove_player_from_repr(self, player):
+    #     pass
+    #
+    # @abstractmethod
+    # def _is_valid_message(self):
+    #     pass
+    #
+    # @abstractmethod
+    # def _check_vote_timeout(self):
+    #     pass
+    #
+    # @abstractmethod
+    # def _update_players(self, players):
+    #     pass
+    #
+    # @abstractmethod
+    # def _can_start(self):
+    #     pass
+    #
+    # @abstractmethod
+    # def _switch_team(self):
+    #     pass
 
 
 class SingleGameController(BaseGame):
-    # TODO: add proper definitions
-    pass
+    @property
+    def results(self):
+        return self._players

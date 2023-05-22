@@ -161,13 +161,15 @@ class BasePlayerController(ABC):
         self.session.players_now += 1
         self.session.save()
 
-    def get_player(self, local_id: int):
+    def get_player(self, local_id: int) -> LocalPlayer | None:
         return self._players_dict.get(local_id, None)
 
     def remove_player(self, local_id: int):
         if local_id in self._players_dict:
             player = self._players_dict.pop(local_id)
             self._remove_from_repr(player)
+            self.session.players_now -= 1
+            self.session.save()
 
     def handle_word(self, player: dict, word: str):
         player_obj = self.get_player(player['local_id'])
@@ -282,7 +284,7 @@ class BaseGame(ABC):
     def _init_event_handlers(self):
         event_handlers = {
             Event.PLAYER_JOINED: self._handle_player_join,
-            # Event.PLAYER_LEFT: self._handle_player_leave,
+            Event.PLAYER_LEFT: self._handle_player_leave,
             # Event.PLAYER_WORD: self._handle_word,
             # Event.TRIGGER_TICK: self._handle_tick,
             # Event.PLAYER_READY_STATE: self._handle_player_ready,
@@ -313,15 +315,15 @@ class BaseGame(ABC):
             events.append(self._get_players_update_event())
             return events
         raise PlayerJoinRefusedError
-    #
-    # def _handle_player_leave(self, player) -> list[Event]:
-    #     self._remove_player(player)
-    #
-    #     message = {'players': self._players}
-    #     event = Event(target=Event.TARGET_ALL,
-    #                   type=Event.SERVER_PLAYERS_UPDATE, data=message)
-    #     return [event]
-    #
+
+    def _handle_player_leave(self, player: Player) -> list[Event]:
+        """Event handler for player leaving the session"""
+        events = []
+        if self._player_exists(player):
+            self._remove_player(player)
+            events.append(self._get_players_update_event())
+        return events
+
     # def _handle_word(self, player, word) -> list[Event]:
     #     self._player_controller.handle_word(player, word)
     #     message = {'word': self._word_provider.get_new_word(),
@@ -401,20 +403,26 @@ class BaseGame(ABC):
         # TODO: don't rely on object modification
         return player_obj
 
-    def _remove_player(self, player: dict):
-        self._player_controller.remove_player(player['local_id'])
+    def _remove_player(self, player: Player):
+        self._player_controller.remove_player(player.pk)
 
-    # def _get_player(self, player: dict) -> :
-    #     return self._player_controller.get_player(player['local_id'])
+    def _get_player(self, player: Player) -> LocalPlayer | None:
+        return self._player_controller.get_player(player.pk)
 
     def _can_player_join(self, player: Player) -> bool:
         if 0 < self._session.players_max <= self._player_count:
             return False
         if self._state is not self.STATE_PREPARING:
             return False
-        if self._player_controller.get_player(player.pk) is not None:
+        if self._player_exists(player):
             return False
         return True
+
+    def _player_exists(self, player: Player) -> bool:
+        """
+        Checks if player with given player record is present in the session
+        """
+        return bool(self._get_player(player) is not None)
 
     @property
     def _player_count(self):

@@ -102,6 +102,7 @@ class SingleGameControllerTestCase(TestCase):
         Player can join if the session is not yet started.
         player_joined is broadcasted on success,
         """
+        # TODO: split test into several
         event = Event(
             # we know: - session_id
             #          - username / auth_token -> derive Player object from that
@@ -112,18 +113,30 @@ class SingleGameControllerTestCase(TestCase):
         server_events = self.controller.player_event(event)
         self.session_record.refresh_from_db()
 
-        initial_state_event = server_events[0]
-        player_joined_event = server_events[1]
+        initial_state_event, player_joined_event = server_events
+        local_player = self.controller._get_player(self.player_record)
         player_object = initial_state_event.data['player']
 
-        self.assertEqual(player_object['displayed_name'],
+        self.assertEqual(local_player.local_id, self.player_record.pk)
+        self.assertEqual(local_player.displayed_name,
                          self.player_record.displayed_name)
-        self.assertIs(type(player_object['local_id']), int)
-        self.assertEqual(player_object['score'], 0)
-        self.assertEqual(player_object['speed'], 0)
+        self.assertEqual(local_player.score, 0)
+        self.assertEqual(local_player.speed, 0)
+        self.assertEqual(local_player.correct_words, 0)
+        self.assertEqual(local_player.incorrect_words, 0)
+        self.assertEqual(local_player.total_word_length, 0)
+        self.assertEqual(local_player.time_left, None)
+        self.assertEqual(local_player.is_ready, False)
+        self.assertIsNone(local_player.voted_for)
+
+        self.assertEqual(player_object, local_player.to_dict())
 
         self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
         self.assertEqual(initial_state_event.target, Event.TARGET_PLAYER)
+        self.assertEqual(
+            initial_state_event.data['player'],
+            local_player.to_dict(),
+        )
         self.assertIs(type(initial_state_event.data['words']), list)
         self.assertTrue(all(
             type(w) == str
@@ -234,8 +247,8 @@ class SingleGameControllerTestCase(TestCase):
         self.session_record.refresh_from_db()
 
         # TODO: test _get_player so we can `trust` it
-        player_object = self.controller._get_player(self.player_record)
-        self.assertIsNone(player_object)
+        local_player = self.controller._get_player(self.player_record)
+        self.assertIsNone(local_player)
 
         self.assertEqual(server_events[0].target, Event.TARGET_ALL)
         self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
@@ -257,95 +270,71 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(len(server_events), 0)
         self.assertEqual(self.session_record.players_now, players_before)
 
-    # def test_ready_state_event(self):
-    #     """
-    #     Player can set the ready state only during the preparation stage.
-    #     If player that's already ready sets ready to true again, nothing is to
-    #     be done. Otherwise, if everyone else is ready, the game should begin.
-    #     """
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     ready_event = Event(
-    #         type=Event.PLAYER_READY_STATE,
-    #         data=PlayerMessage(player=self.player_record, payload=True)
-    #     )
-    #     self.controller.player_event(join_event)
-    #     server_events = self.controller.player_event(ready_event)
-    #     self.session_record.refresh_from_db()
-    #
-    #     players_update_event, game_begins_event = server_events
-    #     player_object = self.controller._get_player(self.player_record)
-    #
-    #     self.assertEqual(player_object['displayed_name'],
-    #                      self.player_record.displayed_name)
-    #     self.assertIs(type(player_object['local_id']), int)
-    #     self.assertEqual(player_object['score'], 0)
-    #     self.assertEqual(player_object['speed'], 0)
-    #     self.assertEqual(player_object['ready'], True)
-    #
-    #     self.assertEqual(players_update_event.target, Event.TARGET_ALL)
-    #     self.assertEqual(players_update_event.type, Event.SERVER_PLAYERS_UPDATE)
-    #     self.assertIn('players', players_update_event.data)
-    #     self.assertEqual(game_begins_event.target, Event.TARGET_ALL)
-    #     self.assertEqual(game_begins_event.type, Event.SERVER_GAME_BEGINS)
-    #     self.assertIsNotNone(self.session_record.started_at)
-    #
-    # def test_player_ready_twice_yields_nothing(self):
-    #     p1_join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     p2_join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.other_player_record)
-    #     )
-    #     p1_ready_event = Event(
-    #         type=Event.PLAYER_READY_STATE,
-    #         data=PlayerMessage(player=self.player_record, payload=True)
-    #     )
-    #     players_before = self.session_record.players_now
-    #     self.controller.player_event(p1_join_event)
-    #     self.controller.player_event(p2_join_event)
-    #     server_events1 = self.controller.player_event(p1_ready_event)
-    #     server_events2 = self.controller.player_event(p1_ready_event)
-    #     self.session_record.refresh_from_db()
-    #
-    #     self.assertEqual(len(server_events1), 1)
-    #     self.assertEqual(server_events1[0].target, Event.TARGET_ALL)
-    #     self.assertEqual(server_events1[0].type, Event.SERVER_PLAYERS_UPDATE)
-    #
-    #     self.assertEqual(len(server_events2), 0)
-    #     self.assertEqual(self.session_record.players_now, players_before + 2)
-    #     self.assertIsNone(self.session_record.started_at)
-    #
-    # def test_cannot_set_ready_after_prep_stage(self):
-    #     """
-    #     Player should not be able to change the ready state during any stage
-    #     other than preparation.
-    #     """
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     ready_event = Event(
-    #         type=Event.PLAYER_READY_STATE,
-    #         data=PlayerMessage(player=self.player_record, payload=True)
-    #     )
-    #     self.controller.player_event(join_event)
-    #     self.controller._start_game()
-    #     server_events = self.controller.player_event(ready_event)
-    #     self.assertEqual(len(server_events), 0)
-    #
-    #     self.controller._game_over()
-    #     server_events = self.controller.player_event(ready_event)
-    #     self.session_record.refresh_from_db()
-    #     self.assertEqual(len(server_events), 0)
-    #     self.assertIsNotNone(self.session_record.started_at)
-    #     self.assertIsNotNone(self.session_record.finished_at)
-    #     self.assertTrue(self.session_record.is_finished)
-    #
+    def test_ready_state_event(self):
+        """
+        Player can set the ready state only during the preparation stage.
+        If player that's already ready sets ready to true again, nothing is to
+        be done. Otherwise, if everyone else is ready, the game should begin.
+
+        TODO: test delayed start_game event (relies on ticks)
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True)
+        )
+        self.controller.player_event(join_event)
+        server_events = self.controller.player_event(ready_event)
+        self.session_record.refresh_from_db()
+
+        players_update_event, game_begins_event = server_events[:2]
+        local_player = self.controller._get_player(self.player_record)
+
+        self.assertEqual(local_player.is_ready, True)
+
+        self.assertEqual(players_update_event.target, Event.TARGET_ALL)
+        self.assertEqual(players_update_event.type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertIn('players', players_update_event.data)
+
+        self.assertEqual(game_begins_event.target, Event.TARGET_ALL)
+        self.assertEqual(game_begins_event.type, Event.SERVER_GAME_BEGINS)
+
+        if self.controller.GAME_BEGINS_COUNTDOWN <= 0:
+            start_game_event = server_events[2]
+            self.assertEqual(start_game_event.target, Event.TARGET_ALL)
+            self.assertEqual(start_game_event.type, Event.SERVER_START_GAME)
+            self.assertIsNotNone(self.session_record.started_at)
+        # .started_at should be set only after SERVER_START_GAME fires
+
+    def test_cannot_set_ready_after_prep_stage(self):
+        """
+        Player should not be able to change the ready state during any stage
+        other than preparation.
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True)
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        server_events = self.controller.player_event(ready_event)
+        self.assertEqual(len(server_events), 0)
+
+        self.controller._game_over()
+        server_events = self.controller.player_event(ready_event)
+        self.session_record.refresh_from_db()
+        self.assertEqual(len(server_events), 0)
+        self.assertIsNotNone(self.session_record.started_at)
+        self.assertIsNotNone(self.session_record.finished_at)
+        self.assertTrue(self.session_record.is_finished)
+
     # def test_player_ready_for_nonexistent_player_yields_nothing(self):
     #     # TODO
     #     pass

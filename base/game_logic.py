@@ -152,6 +152,7 @@ class BasePlayerController(ABC):
     def __init__(self, session: GameSession):
         self._players_dict = {}
         self._players_repr = self._init_repr()
+        self._ready_count = 0
         self._last_tick = None
         self.session = session
 
@@ -183,6 +184,20 @@ class BasePlayerController(ABC):
     @property
     def player_count(self):
         return len(self._players_dict)
+
+    @property
+    def ready_count(self):
+        return self._ready_count
+
+    def set_ready_state(self, local_id: int, state: bool):
+        """
+        Updates player's ready state and the ready_count counter accordingly
+        """
+        player = self.get_player(local_id)
+        if player is not None and player.is_ready != state:
+            player.is_ready = state
+            self._ready_count += 1 if state else -1
+        return
 
     @property
     def time_elapsed(self):
@@ -260,6 +275,8 @@ class BaseGame(ABC):
     player_controller_class = PlayerPlainController
     player_class = LocalPlayer
 
+    GAME_BEGINS_COUNTDOWN = 0
+
     def __init__(self, session_id=None):
         self._session = GameSession.objects.get(session_id=session_id)
         if self._session.is_finished:
@@ -269,6 +286,7 @@ class BaseGame(ABC):
         self._player_controller = self.player_controller_class(self._session)
         self._event_handlers = self._init_event_handlers()
         self._word_provider = self.word_provider_class()
+        self._game_begins_at = None
 
     def player_event(self, event: Event) -> list[Event]:
         if not event.is_valid():
@@ -285,9 +303,9 @@ class BaseGame(ABC):
         event_handlers = {
             Event.PLAYER_JOINED: self._handle_player_join,
             Event.PLAYER_LEFT: self._handle_player_leave,
+            Event.PLAYER_READY_STATE: self._handle_player_ready,
             # Event.PLAYER_WORD: self._handle_word,
             # Event.TRIGGER_TICK: self._handle_tick,
-            # Event.PLAYER_READY_STATE: self._handle_player_ready,
             # Event.PLAYER_MODE_VOTE: self._handle_player_vote,
         }
         if hasattr(self, 'get_extending_event_handlers'):
@@ -324,6 +342,24 @@ class BaseGame(ABC):
             events.append(self._get_players_update_event())
         return events
 
+    def _handle_player_ready(self,
+                             player: Player,
+                             payload: bool,
+                             ) -> list[Event]:
+        events = []
+        if self._state is self.STATE_PREPARING:
+            self._set_ready_state(player, payload)
+            events.append(self._get_players_update_event())
+            if self._can_start():
+                game_begins_event = self._get_game_begins_event()
+                events.append(game_begins_event)
+                if self.GAME_BEGINS_COUNTDOWN <= 0:
+                    start_game_event = self._start_game()
+                    events.append(start_game_event)
+                else:
+                    self._stage_start_game(self.GAME_BEGINS_COUNTDOWN)
+        return events
+
     # def _handle_word(self, player, word) -> list[Event]:
     #     self._player_controller.handle_word(player, word)
     #     message = {'word': self._word_provider.get_new_word(),
@@ -346,18 +382,6 @@ class BaseGame(ABC):
     #                           type=Event.SERVER_START_GAME,
     #                           data=self._vote_results)
     #             events.append(event)
-    #     return events
-    #
-    # def _handle_player_ready(self, data) -> list[Event]:
-    #     events = []
-    #     if self._state is self.STATE_PREPARING:
-    #         self._update_players(data)
-    #         event = Event(target=Event.TARGET_ALL,
-    #                       type=Event.SERVER_PLAYERS_UPDATE, data=self._players)
-    #         events.append(event)
-    #         if self._can_start():
-    #             start_game_event = self._start_game()
-    #             events.append(start_game_event)
     #     return events
     #
     # def _handle_player_vote(self, data):
@@ -392,6 +416,12 @@ class BaseGame(ABC):
                       data={'players': self._players})
         return event
 
+    def _get_game_begins_event(self) -> Event:
+        event = Event(target=Event.TARGET_ALL,
+                      type=Event.SERVER_GAME_BEGINS,
+                      data=self.GAME_BEGINS_COUNTDOWN)
+        return event
+
     def _init_player(self, player: Player):
         player_obj = self.player_class(player)
         player_obj.add_word_iterator(self._word_provider.words)
@@ -409,6 +439,18 @@ class BaseGame(ABC):
     def _get_player(self, player: Player) -> LocalPlayer | None:
         return self._player_controller.get_player(player.pk)
 
+    def _can_start(self) -> bool:
+        players_ready = self._player_controller.ready_count
+        players_count = self._player_controller.player_count
+        return players_ready >= players_count
+
+    def _stage_start_game(self, countdown: int):
+        """
+        Set _game_begins_at for future ticks to compare tz.now() against
+        """
+        offset = timezone.timedelta(seconds=countdown)
+        self._game_begins_at = timezone.now() + offset
+
     def _can_player_join(self, player: Player) -> bool:
         if 0 < self._session.players_max <= self._player_count:
             return False
@@ -424,8 +466,11 @@ class BaseGame(ABC):
         """
         return bool(self._get_player(player) is not None)
 
+    def _set_ready_state(self, player: Player, state: bool):
+        self._player_controller.set_ready_state(player.pk, state)
+
     @property
-    def _player_count(self):
+    def _player_count(self) -> int:
         return self._player_controller.player_count
 
     def _start_game(self) -> Event:
@@ -433,6 +478,7 @@ class BaseGame(ABC):
         Updates controller and database record state to STATE_PLAYING.
 
         NOTE: this function is used heavily in unit tests to alter game state.
+        TODO: test me (please!)
         """
         self._state = self.STATE_PLAYING
         self._session.start_game()
@@ -446,6 +492,7 @@ class BaseGame(ABC):
         Updates controller and database record state to STATE_VOTING.
 
         NOTE: this function is used heavily in unit tests to alter game state.
+        TODO: test me (please!)
         """
         self._state = self.STATE_VOTING
         self._session.save_results(self.results)
@@ -513,5 +560,5 @@ class BaseGame(ABC):
 
 class SingleGameController(BaseGame):
     @property
-    def results(self):
-        return self._players
+    def results(self) -> list[dict]:
+        return self._players.values()

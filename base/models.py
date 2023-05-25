@@ -1,6 +1,6 @@
 import uuid
 
-from django.db import models, transaction
+from django.db import models, transaction, IntegrityError
 from django.db.models import Q, Max, Avg, Count, Sum
 from django.db.models.constraints import CheckConstraint
 from django.contrib.auth import get_user_model
@@ -85,12 +85,20 @@ class SessionPlayerResult(models.Model):
             ),
             models.CheckConstraint(
                 check=Q(speed__gte=0),
-                name="non_negative_speed",
+                name='non_negative_speed',
             ),
             models.CheckConstraint(
                 check=Q(mistake_ratio__gte=0),
-                name="non_negative_mistake_ratio",
-            )
+                name='non_negative_mistake_ratio',
+            ),
+            # models.CheckConstraint(
+            #     check=~Q(session__started_at=None)
+            #            & ~Q(session__finished_at=None),
+            #     name='cant_exist_on_unfinished_session',
+            #     violation_error_message="Results cannot be saved on session "
+            #                             "that wasn't yet finished",
+            # )
+            # TODO: implement this constraint via database triggers?
         ]
 
 
@@ -110,12 +118,13 @@ class GameSession(models.Model):
         related_name="sessions_created",
         blank=True,
         null=True,
-        )
+    )
     session_id = models.UUIDField(
         editable=False,
         unique=True,
         default=uuid.uuid4,
-        )
+    )
+    # TODO: get rid of redundant is_finished field (replace with state ?)
     is_finished = models.BooleanField(default=False, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(blank=True, null=True)
@@ -127,25 +136,39 @@ class GameSession(models.Model):
                 check=(Q(password='') & Q(is_private=False))
                       | Q(is_private=True),
                 name='no_password_for_public',
+                violation_error_message="Can't set password on public Session",
+            ),
+            CheckConstraint(
+                check=~(Q(started_at=None) & ~Q(finished_at=None)),
+                name='cant_be_finished_without_being_started',
+                violation_error_message="Session can't be finished if it "
+                                        "wasn't yet started",
             ),
         ]
 
     def save(self, *args, **kwargs):
         if self.password:
+            # FIXME: perhaps we shouldn't?
             self.is_private = True  # Enforce
         if self._state.adding and self.password:
             self.set_password(self.password)
         super().save(*args, **kwargs)
 
     def save_results(self, results: list[dict]):
+        """
+        Creates result record for each player on this session.
+        If called for session that wasn't yet finished, raises IntegrityError.
+        """
+        if not self.is_finished or self.finished_at is None:
+            # Cannot implement this constraint in Django
+            # because of ForeignKey relation it requires
+            raise IntegrityError
         result_objs = [
             SessionPlayerResult(session=self, **result)
             for result in results
         ]
         for obj in result_objs:
             obj.full_clean()
-        self.finished_at = timezone.now()
-        self.is_finished = True
         with transaction.atomic():
             SessionPlayerResult.objects.bulk_create(result_objs, batch_size=1000)
             self.save()
@@ -157,6 +180,17 @@ class GameSession(models.Model):
         return check_password(password, self.password)
 
     def start_game(self):
+        """Marks session as started if it wasn't"""
         if self.started_at is None:
             self.started_at = timezone.now()
+            self.save()
+
+    def game_over(self):
+        """
+        Marks session as finished if it wasn't.
+        If session wasn't yet started, should raise IntegrityError.
+        """
+        if not self.is_finished and self.finished_at is None:
+            self.finished_at = timezone.now()
+            self.is_finished = True
             self.save()

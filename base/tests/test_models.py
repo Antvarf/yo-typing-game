@@ -176,6 +176,42 @@ class GameSessionTestCase(TestCase):
             self.game_session.started_at,
         )
 
+    def test_game_over(self):
+        """Tests that .game_over():
+                * Sets .finished_at field to timezone.now() value,
+                       .is_finished to True
+            """
+        self.game_session.start_game()
+
+        before_timestamp = timezone.now()
+        self.game_session.game_over()
+        after_timestamp = timezone.now()
+
+        self.assertTrue(self.game_session.is_finished)
+        self.assertGreaterEqual(
+            self.game_session.finished_at,
+            before_timestamp,
+        )
+        self.assertGreaterEqual(
+            after_timestamp,
+            self.game_session.finished_at,
+        )
+
+    def test_game_over_fails_on_not_started_session(self):
+        """If called on a session that's yet to be started, raise exception"""
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                self.game_session.game_over()
+
+    def test_game_over_doesnt_update_already_finished_session(self):
+        """If called on a session that was already finished, do nothing"""
+        self.game_session.start_game()
+        self.game_session.game_over()
+        before_timestamp = self.game_session.finished_at
+        self.game_session.game_over()
+
+        self.assertEqual(before_timestamp, self.game_session.finished_at)
+
 
 class GameSessionSaveResultsTestCase(TestCase):
     """
@@ -195,19 +231,25 @@ class GameSessionSaveResultsTestCase(TestCase):
         * on success is_finished is set True, finished_at is set roughly to now
     """
     def setUp(self):
-        self.game_session = GameSession.objects.create(
+        self.finished_game_session = GameSession.objects.create(
             mode=GameModes.SINGLE,
             name='test_session_1',
         )
+        self.finished_game_session.start_game()
+        self.finished_game_session.game_over()
+
+        self.new_game_session = GameSession.objects.create(
+            mode=GameModes.SINGLE,
+            name='test_session_2',
+        )
+
         self.player = Player.objects.create(
             displayed_name='test_player_1'
         )
         self.other_player = Player.objects.create(
             displayed_name='test_player_2'
         )
-
-    def test_single_player(self):
-        result = {
+        self.player_result = {
             'player': self.player,
             'score': 1337,
             'speed': 0.6,
@@ -217,95 +259,63 @@ class GameSessionSaveResultsTestCase(TestCase):
             'incorrect_words': 16,
             'team': '',
         }
-        before_timestamp = timezone.now()
-        self.game_session.save_results([result])
-        after_timestamp = timezone.now()
-        self.assertTrue(self.game_session.is_finished)
-        self.assertGreaterEqual(
-            self.game_session.finished_at,
-            before_timestamp,
-        )
-        self.assertGreaterEqual(
-            after_timestamp,
-            self.game_session.finished_at,
-        )
-        result_rec = SessionPlayerResult.objects.get(**result)
+        self.other_player_result = {
+            'player': self.other_player,
+            'score': 0xdeadbeef,
+            'speed': 0.6,
+            'mistake_ratio': 0.25,
+            'is_winner': True,
+            'correct_words': 800,
+            'incorrect_words': 200,
+            'team': '',
+        }
+        self.results = [
+            self.player_result,
+            self.other_player_result,
+        ]
+
+    def test_cannot_save_results_on_not_started_session(self):
+        """Results can't be saved for a session that's not started"""
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                self.new_game_session.save_results(self.results)
+
+    def test_cannot_save_results_on_not_finished_session(self):
+        """Results can't be saved for a session that's not finished"""
+        self.new_game_session.start_game()
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                self.new_game_session.save_results(self.results)
+
+    def test_single_player(self):
+        self.finished_game_session.save_results([self.player_result])
+
+        result_rec = SessionPlayerResult.objects.get(**self.player_result)
 
     def test_multiple_players(self):
-        results = [
-            {
-                'player': self.player,
-                'score': 1337,
-                'speed': 0.6,
-                'mistake_ratio': 0.2,
-                'is_winner': True,
-                'correct_words': 80,
-                'incorrect_words': 16,
-                'team': '',
-            },
-            {
-                'player': self.other_player,
-                'score': 0xdeadbeef,
-                'speed': 0.6,
-                'mistake_ratio': 0.25,
-                'is_winner': True,
-                'correct_words': 800,
-                'incorrect_words': 200,
-                'team': '',
-            }
-        ]
-        self.game_session.save_results(results)
-        results_qs = self.game_session.results.all()
-        for r in results:
+        self.finished_game_session.save_results(self.results)
+        results_qs = self.finished_game_session.results.all()
+
+        for r in self.results:
             result_obj = results_qs.get(**r)
 
     def test_missing_parameters(self):
-        result = {
-            'player': self.player,
-            'score': 1337,
-            'speed': 0.6,
-            'mistake_ratio': 0.2,
-            'is_winner': True,
-            'correct_words': 80,
-            'incorrect_words': 16,
-        }
         required_params = ('score', 'speed', 'mistake_ratio',
                            'is_winner', 'correct_words', 'incorrect_words')
         for param in required_params:
-            invalid_result = result.copy()
+            invalid_result = self.player_result.copy()
             invalid_result.pop(param)
             with self.assertRaises(ValidationError):
-                self.game_session.save_results([invalid_result])
+                self.finished_game_session.save_results([invalid_result])
 
     def test_validation_error_rollback(self):
-        results = [
-            {
-                'player': self.player,
-                'score': 1337,
-                'speed': 0.6,
-                'mistake_ratio': 0.2,
-                'is_winner': True,
-                'correct_words': 80,
-                'incorrect_words': 16,
-                'team': '',
-            },
-            {
-                'player': self.other_player,
-            #   'score': 0xdeadbeef,
-                'speed': 0.6,
-                'mistake_ratio': 0.25,
-                'is_winner': True,
-                'correct_words': 800,
-                'incorrect_words': 200,
-                'team': '',
-            }
-        ]
+        results = [r.copy() for r in self.results]
+        results[1].pop('score')
+
         with self.assertRaises(ValidationError):
-            self.game_session.save_results(results)
-        results_qs = self.game_session.results.all()
+            self.finished_game_session.save_results(results)
+        results_qs = self.finished_game_session.results.all()
         self.assertFalse(results_qs.exists())
-        self.assertFalse(self.game_session.is_finished)
-        self.assertIsNone(self.game_session.finished_at)
         # additional check that player's stats were not changed
         stats = Player.objects.with_stats().get(id=self.player.id)
         self.assertEqual(stats.best_speed, 0)
@@ -314,6 +324,9 @@ class GameSessionSaveResultsTestCase(TestCase):
         self.assertEqual(stats.avg_score, 0)
         self.assertEqual(stats.games_played, 0)
         self.assertEqual(stats.total_score, 0)
+
+    # def test_save_with_extra_fields(self):
+    #     """If extra fields are submitted in result, filter them out and save"""
 
 
 class SessionPlayerResultTestcase(TestCase):

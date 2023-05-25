@@ -290,7 +290,7 @@ class GameSessionSaveResultsTestCase(TestCase):
     def test_single_player(self):
         self.finished_game_session.save_results([self.player_result])
 
-        result_rec = SessionPlayerResult.objects.get(**self.player_result)
+        SessionPlayerResult.objects.get(**self.player_result)
 
     def test_multiple_players(self):
         self.finished_game_session.save_results(self.results)
@@ -325,8 +325,20 @@ class GameSessionSaveResultsTestCase(TestCase):
         self.assertEqual(stats.games_played, 0)
         self.assertEqual(stats.total_score, 0)
 
-    # def test_save_with_extra_fields(self):
-    #     """If extra fields are submitted in result, filter them out and save"""
+    def test_error_for_non_existent_players(self):
+        """If player object for non-existent player is provided, raise error"""
+        self.player_result['player'].id ^= 0xdeadbeef
+
+        with self.assertRaises(ValidationError):
+            self.finished_game_session.save_results([self.player_result])
+
+    def test_save_with_extra_fields(self):
+        """If extra fields are submitted in result, filter them out and save"""
+        self.player_result.update({'extra_field': 'Absolutely random value'})
+        self.finished_game_session.save_results([self.player_result])
+        self.player_result.pop('extra_field')
+
+        SessionPlayerResult.objects.get(**self.player_result)
 
 
 class SessionPlayerResultTestcase(TestCase):

@@ -163,14 +163,29 @@ class GameSession(models.Model):
             # Cannot implement this constraint in Django
             # because of ForeignKey relation it requires
             raise IntegrityError
-        result_objs = [
-            SessionPlayerResult(session=self, **result)
+
+        result_fields = set(
+            f.name for f in SessionPlayerResult._meta.get_fields()
+        )
+        filtered_results = [
+            {
+                key: result[key]
+                for key in result.keys() & result_fields
+            }
             for result in results
         ]
-        for obj in result_objs:
-            obj.full_clean()
+
+        result_objects = list()
+        for result in filtered_results:
+            r = SessionPlayerResult(session=self, **result)
+            r.full_clean()
+            result_objects.append(r)
+
         with transaction.atomic():
-            SessionPlayerResult.objects.bulk_create(result_objs, batch_size=1000)
+            SessionPlayerResult.objects.bulk_create(
+                result_objects,
+                batch_size=1000,
+            )
             self.save()
 
     def set_password(self, password: str):

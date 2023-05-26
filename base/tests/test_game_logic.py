@@ -1,3 +1,5 @@
+import copy
+
 from django.db import transaction
 from django.test import TestCase
 
@@ -348,64 +350,73 @@ class SingleGameControllerTestCase(TestCase):
 
         self.assertEqual(len(server_events), 0)
 
-    #
-    # def test_player_word_event(self):
-    #     """
-    #     Player can send words only during the gameplay stage. Nothing happens
-    #     otherwise.
-    #     If handled, the new word should be broadcasted for every player. Scores
-    #     should be updated accordingly.
-    #     """
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     word_event = Event(
-    #         type=Event.PLAYER_WORD,
-    #         data=PlayerMessage(player=self.player_record, payload='test_word')
-    #     )
-    #     self.controller.player_event(join_event)
-    #     self.controller._start_game()
-    #     server_events = self.controller.player_event(word_event)
-    #
-    #     # TODO: test for stat changes
-    #     self.assertEqual(server_events[0].type, Event.SERVER_NEW_WORD)
-    #     self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-    #     self.assertIs(type(server_events[0].data), str)
-    #
-    # def test_player_cannot_submit_words_while_prep(self):
-    #     """
-    #     Any word event during PREPARATION stage is discarded
-    #     """
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     word_event = Event(
-    #         type=Event.PLAYER_WORD,
-    #         data=PlayerMessage(player=self.player_record, payload='test_word')
-    #     )
-    #     self.controller.player_event(join_event)
-    #     server_events = self.controller.player_event(word_event)
-    #
-    #     self.assertEqual(len(server_events), 0)
-    #
-    # def test_player_cannot_submit_words_while_voting(self):
-    #     """Any word event during VOTING stage is discarded"""
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     word_event = Event(
-    #         type=Event.PLAYER_WORD,
-    #         data=PlayerMessage(player=self.player_record, payload='test_word')
-    #     )
-    #     self.controller.player_event(join_event)
-    #     self.controller._start_game()
-    #     self.controller._game_over()
-    #     server_events = self.controller.player_event(word_event)
-    #
-    #     self.assertEqual(len(server_events), 0)
+    def test_player_word_event(self):
+        """
+        Player can send words only during the gameplay stage. Nothing happens
+        otherwise.
+        If handled, the new word should be broadcasted for every player. Scores
+        should be updated accordingly.
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(player=self.player_record, payload='test_word')
+        )
+        _, players_update_event_1 = self.controller.player_event(join_event)
+        players_before_submission = copy.deepcopy(players_update_event_1.data)
+
+        self.controller._start_game()
+        new_word_event, players_update_event_2 =\
+            self.controller.player_event(word_event)
+        players_after_submission = players_update_event_2.data
+
+        self.assertEqual(new_word_event.type, Event.SERVER_NEW_WORD)
+        self.assertEqual(new_word_event.target, Event.TARGET_ALL)
+        self.assertIs(type(new_word_event.data), str)
+
+        self.assertEqual(players_update_event_2.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(players_update_event_2.target, Event.TARGET_ALL)
+        self.assertNotEqual(players_before_submission,
+                            players_after_submission)
+
+    def test_player_cannot_submit_words_while_prep(self):
+        """
+        Any word event during PREPARATION stage is discarded
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(player=self.player_record, payload='test_word')
+        )
+        self.controller.player_event(join_event)
+        server_events = self.controller.player_event(word_event)
+
+        self.assertEqual(len(server_events), 0)
+
+    def test_player_cannot_submit_words_while_voting(self):
+        """Any word event during VOTING stage is discarded"""
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(player=self.player_record, payload='test_word')
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        self.controller._game_over()
+        server_events = self.controller.player_event(word_event)
+        # i don't believe that anybody feels the way i do about you now
+
+        self.assertEqual(len(server_events), 0)
     #
     # def test_player_vote_event(self):
     #     """

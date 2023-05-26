@@ -87,19 +87,23 @@ class InvalidGameStateException(Exception):
 
 class WordListProvider:
     def __init__(self):
-        self._words = self._get_new_word_page()
+        self._words = []
+        self._extend_word_list()
 
     def _extend_word_list(self):
         word_page = self._get_new_word_page()
         self._words.extend(word_page)
         self._new_word_iterator = iter(word_page)
 
-    def _get_new_word_page(self, n: int = 100) -> list[str]:
+    @staticmethod
+    def _get_new_word_page(n: int = 100) -> list[str]:
         word_page = helpers.get_words(n)
         return word_page
 
     @property
     def words(self) -> list[str]:
+        if not self._words:
+            self._extend_word_list()
         return self._words
 
     def get_new_word(self) -> str:
@@ -174,8 +178,8 @@ class BasePlayerController(ABC):
             self.session.players_now -= 1
             self.session.save()
 
-    def handle_word(self, player: dict, word: str):
-        player_obj = self.get_player(player['id'])
+    def handle_word(self, player_id: int, word: str):
+        player_obj = self.get_player(player_id)
         self._handle_word(player_obj, word)
         self._update_repr_from_object(player_obj)
 
@@ -202,8 +206,11 @@ class BasePlayerController(ABC):
         return
 
     @property
-    def time_elapsed(self):
-        return self.session.started_at - timezone.now()
+    def time_elapsed(self) -> int:
+        if self.session.started_at is None:
+            return 0
+        delta = self.session.started_at - timezone.now()
+        return delta.total_seconds() + 1
 
     @abstractmethod
     def _init_repr(self):
@@ -301,7 +308,7 @@ class BaseGame(ABC):
             Event.PLAYER_JOINED: self._handle_player_join,
             Event.PLAYER_LEFT: self._handle_player_leave,
             Event.PLAYER_READY_STATE: self._handle_player_ready,
-            # Event.PLAYER_WORD: self._handle_word,
+            Event.PLAYER_WORD: self._handle_word,
             # Event.TRIGGER_TICK: self._handle_tick,
             # Event.PLAYER_MODE_VOTE: self._handle_player_vote,
         }
@@ -358,14 +365,14 @@ class BaseGame(ABC):
                     self._stage_start_game(self.GAME_BEGINS_COUNTDOWN)
         return events
 
-    # def _handle_word(self, player, word) -> list[Event]:
-    #     self._player_controller.handle_word(player, word)
-    #     message = {'word': self._word_provider.get_new_word(),
-    #                'players': self._players}
-    #     event = Event(target=Event.TARGET_ALL,
-    #                   type=Event.SERVER_NEW_WORD, data=message)
-    #     return [event]
-    #
+    def _handle_word(self, player: Player, payload: str) -> list[Event]:
+        events = []
+        if self._state is self.STATE_PLAYING:
+            self._player_controller.handle_word(player.pk, payload)
+            events.append(self._get_new_word_event())
+            events.append(self._get_players_update_event())
+        return events
+
     # def _handle_tick(self) -> list[Event]:
     #     events = []
     #     if self._state is self.STATE_PLAYING:
@@ -418,6 +425,12 @@ class BaseGame(ABC):
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_GAME_BEGINS,
                       data=self.GAME_BEGINS_COUNTDOWN)
+        return event
+
+    def _get_new_word_event(self) -> Event:
+        event = Event(target=Event.TARGET_ALL,
+                      type=Event.SERVER_NEW_WORD,
+                      data=self._word_provider.get_new_word())
         return event
 
     def _init_player(self, player: Player):

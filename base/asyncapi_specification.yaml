@@ -156,7 +156,7 @@ components:
     player_schema:
       type: object
       properties:
-        local_id:
+        id:
           type: integer
         displayed_name:
           type: string
@@ -169,7 +169,7 @@ components:
         is_ready:
           type: boolean
       required:
-        - local_id
+        - id
         - displayed_name
         - score
         - speed

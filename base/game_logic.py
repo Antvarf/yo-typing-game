@@ -112,22 +112,24 @@ class WordListProvider:
 
 @dataclass
 class LocalPlayer:
-    local_id: int
+    id: int
     displayed_name: str
     score: int = 0
     speed: float = 0
     correct_words: int = 0
     incorrect_words: int = 0
     total_word_length: int = 0
+    mistake_ratio: float = 0.0
     time_left: float = None
     is_ready: bool = False
+    is_winner: bool = False
     voted_for: str = None
 
     def __init__(self, player: Player):
         super().__init__()
         self._next_word = None
         self.displayed_name = player.displayed_name
-        self.local_id = player.pk
+        self.id = player.pk
 
     def add_word_iterator(self, words: list[str]):
         self._next_word = iter(words)
@@ -157,23 +159,23 @@ class BasePlayerController(ABC):
         self.session = session
 
     def add_player(self, player: LocalPlayer):
-        self._players_dict[player.local_id] = player
+        self._players_dict[player.id] = player
         self._insert_into_repr(player)
         self.session.players_now += 1
         self.session.save()
 
-    def get_player(self, local_id: int) -> LocalPlayer | None:
-        return self._players_dict.get(local_id, None)
+    def get_player(self, id: int) -> LocalPlayer | None:
+        return self._players_dict.get(id, None)
 
-    def remove_player(self, local_id: int):
-        if local_id in self._players_dict:
-            player = self._players_dict.pop(local_id)
+    def remove_player(self, id: int):
+        if id in self._players_dict:
+            player = self._players_dict.pop(id)
             self._remove_from_repr(player)
             self.session.players_now -= 1
             self.session.save()
 
     def handle_word(self, player: dict, word: str):
-        player_obj = self.get_player(player['local_id'])
+        player_obj = self.get_player(player['id'])
         self._handle_word(player_obj, word)
         self._update_repr_from_object(player_obj)
 
@@ -189,11 +191,11 @@ class BasePlayerController(ABC):
     def ready_count(self):
         return self._ready_count
 
-    def set_ready_state(self, local_id: int, state: bool):
+    def set_ready_state(self, id: int, state: bool):
         """
         Updates player's ready state and the ready_count counter accordingly
         """
-        player = self.get_player(local_id)
+        player = self.get_player(id)
         if player is not None and player.is_ready != state:
             player.is_ready = state
             self._ready_count += 1 if state else -1
@@ -202,11 +204,6 @@ class BasePlayerController(ABC):
     @property
     def time_elapsed(self):
         return self.session.started_at - timezone.now()
-
-    def _get_local_id(self):
-        local_id = self._local_id_counter
-        self._local_id_counter += 1
-        return local_id
 
     @abstractmethod
     def _init_repr(self):
@@ -238,13 +235,13 @@ class PlayerPlainController(BasePlayerController):
         return dict()
 
     def _insert_into_repr(self, player):
-        self._players_repr[player.local_id] = asdict(player)
+        self._players_repr[player.id] = asdict(player)
 
     def _remove_from_repr(self, player):
-        self._players_repr.pop(player.local_id)
+        self._players_repr.pop(player.id)
 
     def _update_repr_from_object(self, player):
-        self._players_repr[player.local_id].update(asdict(player))
+        self._players_repr[player.id].update(asdict(player))
 
     def _handle_word(self, player: LocalPlayer, word: str):
         if player.get_next_word() == word:
@@ -327,7 +324,6 @@ class BaseGame(ABC):
         """
         events = []
         if self._can_player_join(player):
-            # TODO: check if player is present (use Player id for local_id ?)
             player_obj = self._add_player(player)
             events.append(self._get_initial_state_event(player_obj))
             events.append(self._get_players_update_event())
@@ -347,6 +343,8 @@ class BaseGame(ABC):
                              payload: bool,
                              ) -> list[Event]:
         events = []
+        if not self._player_exists(player):
+            return []
         if self._state is self.STATE_PREPARING:
             self._set_ready_state(player, payload)
             events.append(self._get_players_update_event())
@@ -495,6 +493,7 @@ class BaseGame(ABC):
         TODO: test me (please!)
         """
         self._state = self.STATE_VOTING
+        self._session.game_over()
         self._session.save_results(self.results)
         # TODO: rename .save_results() to .end_game() for readability
 

@@ -1,4 +1,6 @@
+import random
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass, asdict
 import typing
 from functools import cached_property
@@ -159,6 +161,7 @@ class BasePlayerController(ABC):
         self._players_dict = {}
         self._players_repr = self._init_repr()
         self._ready_count = 0
+        self._voted_count = 0
         self._last_tick = None
         self.session = session
 
@@ -195,6 +198,15 @@ class BasePlayerController(ABC):
     def ready_count(self):
         return self._ready_count
 
+    @property
+    def voted_count(self):
+        return self._voted_count
+
+    @property
+    def votes(self) -> Counter:
+        counts = Counter(v.voted_for for v in self._players_dict.values())
+        return counts
+
     def set_ready_state(self, id: int, state: bool):
         """
         Updates player's ready state and the ready_count counter accordingly
@@ -203,6 +215,17 @@ class BasePlayerController(ABC):
         if player is not None and player.is_ready != state:
             player.is_ready = state
             self._ready_count += 1 if state else -1
+        return
+
+    def set_player_vote(self, id: int, mode: str):
+        """
+        Updates players vote and the voted_count counter accordingly
+        """
+        player = self.get_player(id)
+        if player is not None and mode in GameModes.labels:
+            if player.voted_for is None:
+                self._voted_count += 1
+            player.voted_for = mode
         return
 
     @property
@@ -290,6 +313,7 @@ class BaseGame(ABC):
         self._player_controller = self.player_controller_class(self._session)
         self._event_handlers = self._init_event_handlers()
         self._word_provider = self.word_provider_class()
+        self._modes_available = GameModes.labels
         self._game_begins_at = None
 
     def player_event(self, event: Event) -> list[Event]:
@@ -310,7 +334,7 @@ class BaseGame(ABC):
             Event.PLAYER_READY_STATE: self._handle_player_ready,
             Event.PLAYER_WORD: self._handle_word,
             # Event.TRIGGER_TICK: self._handle_tick,
-            # Event.PLAYER_MODE_VOTE: self._handle_player_vote,
+            Event.PLAYER_MODE_VOTE: self._handle_player_vote,
         }
         if hasattr(self, 'get_extending_event_handlers'):
             extensions = self.get_extending_event_handlers()
@@ -389,19 +413,20 @@ class BaseGame(ABC):
     #             events.append(event)
     #     return events
     #
-    # def _handle_player_vote(self, data):
-    #     events = []
-    #     if self._state is self.STATE_VOTING:
-    #         self._update_players(data)
-    #         event = Event(target=Event.TARGET_ALL,
-    #                       type=Event.SERVER_VOTES_UPDATE, data=self._players)
-    #         events.append(event)
-    #         if self._voting_finished():
-    #             event = Event(target=Event.TARGET_ALL,
-    #                           type=Event.SERVER_START_GAME,
-    #                           data=self._vote_results)
-    #             events.append(event)
-    #     return events
+    def _handle_player_vote(self, player: Player, payload: str) -> list[Event]:
+        events = []
+        if self._state is self.STATE_VOTING:
+            if payload in self._modes_available:
+                self._set_player_vote(player, payload)
+                events.append(self._get_votes_update_event())
+            else:
+                events.append(self._get_modes_available_event())
+
+            if self._is_voting_finished():
+                self._create_new_game()
+                events.append(self._get_new_game_event())
+                self._state = None
+        return events
 
     def _get_initial_state_event(self, player: LocalPlayer) -> Event:
         event = Event(
@@ -433,6 +458,24 @@ class BaseGame(ABC):
                       data=self._word_provider.get_new_word())
         return event
 
+    def _get_votes_update_event(self) -> Event:
+        event = Event(target=Event.TARGET_ALL,
+                      type=Event.SERVER_VOTES_UPDATE,
+                      data=self._player_controller.votes)
+        return event
+
+    def _get_modes_available_event(self) -> Event:
+        event = Event(target=Event.TARGET_PLAYER,
+                      type=Event.SERVER_MODES_AVAILABLE,
+                      data=self._modes_available)
+        return event
+
+    def _get_new_game_event(self) -> Event:
+        event = Event(target=Event.TARGET_ALL,
+                      type=Event.SERVER_NEW_GAME,
+                      data=self._new_session_id)
+        return event
+
     def _init_player(self, player: Player):
         player_obj = self.player_class(player)
         player_obj.add_word_iterator(self._word_provider.words)
@@ -454,6 +497,11 @@ class BaseGame(ABC):
         players_ready = self._player_controller.ready_count
         players_count = self._player_controller.player_count
         return players_ready >= players_count
+
+    def _is_voting_finished(self) -> bool:
+        players_voted = self._player_controller.voted_count
+        players_count = self._player_controller.player_count
+        return players_voted >= players_count
 
     def _stage_start_game(self, countdown: int):
         """
@@ -479,6 +527,9 @@ class BaseGame(ABC):
 
     def _set_ready_state(self, player: Player, state: bool):
         self._player_controller.set_ready_state(player.pk, state)
+
+    def _set_player_vote(self, player: Player, mode: str):
+        self._player_controller.set_player_vote(player.pk, mode)
 
     @property
     def _player_count(self) -> int:
@@ -568,6 +619,20 @@ class BaseGame(ABC):
     # @abstractmethod
     # def _switch_team(self):
     #     pass
+    def _create_new_game(self):
+        """A function that creates a game with the same settings as current"""
+        # TODO: refactor this list comprehension hell
+        most_common = self._player_controller.votes.most_common()
+        max_count = most_common[0][1]
+        new_mode = random.choices([
+            mode for mode, count in most_common
+            if count == max_count
+        ])[0]
+        new_mode_value = {k: v for v, k in GameModes.choices}[new_mode]
+        new_session = self._session.create_from_previous(
+            new_mode=new_mode_value,
+        )
+        self._new_session_id = new_session
 
 
 class SingleGameController(BaseGame):

@@ -417,111 +417,149 @@ class SingleGameControllerTestCase(TestCase):
         # i don't believe that anybody feels the way i do about you now
 
         self.assertEqual(len(server_events), 0)
-    #
-    # def test_player_vote_event(self):
-    #     """
-    #     Player can supply his vote only during the voting stage. Message should
-    #     be discarded otherwise.
-    #     When handled, the mode voted for should be one of the available ones.
-    #     If selected option is outside of voting scope, return available modes.
-    #     If selected option is one of the available ones, add to the votes.
-    #     Don't add duplicate votes, on every proper vote selection check if
-    #     everyone has voted/check voting timeout if it is set.
-    #     ------------------
-    #     TODO: test timeout
-    #     """
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(player=self.player_record,
-    #                            payload=GameModes.labels[0]),
-    #     )
-    #     self.controller.player_event(join_event)
-    #     server_events = self.controller.player_event(vote_event)
-    #
-    #     self.assertEqual(server_events[0].type, Event.SERVER_VOTES_UPDATE)
-    #     self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-    #     self.assertIs(type(server_events[0].data), dict)
-    #     self.assertTrue(all(
-    #         mode in GameModes.labels and type(count) is int
-    #         for mode, count
-    #         in server_events[0].data.items()
-    #     ))
-    #
-    # def test_player_cannot_submit_vote_while_preparation(self):
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record)
-    #     )
-    #     vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(player=self.player_record,
-    #                            payload=GameModes.labels[0])
-    #     )
-    #     self.controller.player_event(join_event)
-    #     server_events = self.controller.player_event(vote_event)
-    #
-    #     self.assertEqual(len(server_events), 0)
-    #
-    # def test_player_cannot_submit_vote_while_playing(self):
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(player=self.player_record,
-    #                            payload=GameModes.labels[0]),
-    #     )
-    #     self.controller.player_event(join_event)
-    #     self.controller._start_game()
-    #     server_events = self.controller.player_event(vote_event)
-    #
-    #     self.assertEqual(len(server_events), 0)
-    #
-    # def test_player_cannot_vote_for_undefined_modes(self):
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(player=self.player_record,
-    #                            payload=GameModes.labels[0]+'lolidontexist'),
-    #     )
-    #     self.controller.player_event(join_event)
-    #     server_events = self.controller.player_event(vote_event)
-    #
-    #     self.assertEqual(server_events[0].type, Event.SERVER_MODES_AVAILABLE)
-    #     self.assertEqual(server_events[0].target, Event.TARGET_PLAYER)
-    #     self.assertIs(type(server_events[0].data), list)
-    #     self.assertTrue(all(
-    #         type(w) == str
-    #         for w in server_events[0].data
-    #     ))
-    #
-    # def test_player_cant_vote_twice_for_the_same_mode(self):
-    #     join_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(player=self.player_record,
-    #                            payload=GameModes.labels[0]),
-    #     )
-    #     self.controller.player_event(join_event)
-    #     self.controller._start_game()
-    #     self.controller._game_over()
-    #
-    #     server_events_1 = self.controller.player_event(vote_event)
-    #     server_events_2 = self.controller.player_event(vote_event)
-    #
-    #     self.assertEqual(server_events_1, server_events_2) # vote counts are eq
-    #
+
+    def test_player_vote_event(self):
+        """
+        Player can supply his vote only during the voting stage. Message should
+        be discarded otherwise.
+        When handled, the mode voted for should be one of the available ones.
+        If selected option is outside of voting scope, return available modes.
+        If selected option is one of the available ones, add to the votes.
+        Don't add duplicate votes, on every proper vote selection check if
+        everyone has voted/check voting timeout if it is set.
+        ------------------
+        TODO: test timeout
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(player=self.player_record,
+                               payload=GameModes.labels[0]),
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        self.controller._game_over()
+        server_events = self.controller.player_event(vote_event)
+
+        self.assertEqual(server_events[0].type, Event.SERVER_VOTES_UPDATE)
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertTrue(issubclass(type(server_events[0].data), dict))
+        self.assertTrue(all(
+            mode in GameModes.labels and type(count) is int
+            for mode, count
+            in server_events[0].data.items()
+        ))
+
+    def test_player_cannot_submit_vote_while_preparation(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(player=self.player_record,
+                               payload=GameModes.labels[0])
+        )
+        self.controller.player_event(join_event)
+        server_events = self.controller.player_event(vote_event)
+
+        self.assertEqual(len(server_events), 0)
+
+    def test_player_cannot_submit_vote_while_playing(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(player=self.player_record,
+                               payload=GameModes.labels[0]),
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        server_events = self.controller.player_event(vote_event)
+
+        self.assertEqual(len(server_events), 0)
+
+    def test_player_cannot_vote_for_undefined_modes(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(player=self.player_record,
+                               payload=GameModes.labels[0]+'lolidontexist'),
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        self.controller._game_over()
+        server_events = self.controller.player_event(vote_event)
+
+        self.assertEqual(server_events[0].type, Event.SERVER_MODES_AVAILABLE)
+        self.assertEqual(server_events[0].target, Event.TARGET_PLAYER)
+        self.assertIs(type(server_events[0].data), list)
+        self.assertTrue(all(
+            type(w) == str
+            for w in server_events[0].data
+        ))
+
+    def test_player_cant_vote_twice_for_the_same_mode(self):
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(player=self.player_record,
+                               payload=GameModes.labels[0]),
+        )
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller._start_game()
+        self.controller._game_over()
+
+        server_events_1 = self.controller.player_event(vote_event)
+        server_events_2 = self.controller.player_event(vote_event)
+
+        self.assertEqual(server_events_1, server_events_2) # vote counts are eq
+    def test_no_session_creation_with_zero_votes(self):
+        """
+        If last vote needed is submitted multiple times,
+        only one new session is created. New votes aren't
+        distributed after session creation.
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(player=self.player_record,
+                               payload=GameModes.labels[0]),
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        self.controller._game_over()
+
+        server_events_1 = self.controller.player_event(vote_event)
+
+        count_before = GameSession.objects.count()
+        server_events_2 = self.controller.player_event(vote_event)
+        count_after = GameSession.objects.count()
+
+        self.assertEqual(count_before, count_after)
+        self.assertEqual(server_events_1[0].type, Event.SERVER_VOTES_UPDATE)
+        self.assertEqual(server_events_1[1].type, Event.SERVER_NEW_GAME)
+        self.assertEqual(len(server_events_2), 0)
+
     # def test_game_over(self):
     #     pass
 
@@ -599,3 +637,30 @@ class SingleGameControllerTestCase(TestCase):
     #     self.assertEqual(server_events[1].type, Event.SERVER_NEW_GAME)
     #     self.assertEqual(self.session_record.players_now, players_before + 1)
     #     self.assertIsNotNone(self.session_record.finished_at)
+
+    # def test_no_session_creation_with_zero_votes(self):
+    #     """
+    #     Check if everyone leaves without voting new session will not be created
+    #     """
+    #     p1_joined_event = Event(
+    #         type=Event.PLAYER_JOINED,
+    #         data=PlayerMessage(player=self.player_record),
+    #     )
+    #     p2_joined_event = Event(
+    #         type=Event.PLAYER_JOINED,
+    #         data=PlayerMessage(player=self.other_player_record),
+    #     )
+    #     vote_event = Event(
+    #         type=Event.PLAYER_MODE_VOTE,
+    #         data=PlayerMessage(player=self.player_record,
+    #                            payload=GameModes.labels[0]),
+    #     )
+    #     self.controller.player_event(p1_joined_event)
+    #     self.controller.player_event(p2_joined_event)
+    #     self.controller._start_game()
+    #     self.controller._game_over()
+    #
+    #     server_events_1 = self.controller.player_event(vote_event)
+    #     server_events_2 = self.controller.player_event(vote_event)
+    #
+    #     self.assertEqual(server_events_1, server_events_2) # vote counts are eq

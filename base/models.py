@@ -188,6 +188,18 @@ class GameSession(models.Model):
             )
             self.save()
 
+    def create_from_previous(self, new_mode: str) -> 'GameSession':
+        new_session = self.__class__(
+            mode=new_mode,
+            name=self.name,
+            is_private=self.is_private,
+            players_max=self.players_max,
+            creator=self.creator,
+        )
+        new_session.full_clean()
+        new_session.save()
+        return new_session
+
     def set_password(self, password: str):
         self.password = make_password(password)
 

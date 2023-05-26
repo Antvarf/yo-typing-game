@@ -212,6 +212,61 @@ class GameSessionTestCase(TestCase):
 
         self.assertEqual(before_timestamp, self.game_session.finished_at)
 
+    def test_create_from_previous(self):
+        """
+        Test that session preserving settings from the previous
+        can be created with a new mode.
+        """
+        stamp_before = timezone.now()
+        new_session = self.game_session.create_from_previous(
+            new_mode=GameModes.TUGOFWAR,
+        )
+        stamp_after = timezone.now()
+
+        self.assertEqual(new_session.mode, GameModes.TUGOFWAR)
+        self.assertEqual(new_session.name, self.game_session.name)
+        self.assertEqual(new_session.is_private, self.game_session.is_private)
+        self.assertEqual(new_session.players_now, 0)
+        self.assertEqual(
+            new_session.players_max,
+            self.game_session.players_max,
+        )
+        self.assertEqual(new_session.creator, self.game_session.creator)
+        self.assertEqual(new_session.is_finished, False)
+        self.assertLessEqual(stamp_before, new_session.created_at)
+        self.assertLessEqual(new_session.created_at, stamp_after)
+        self.assertIsNone(new_session.started_at)
+        self.assertIsNone(new_session.finished_at)
+
+    def test_create_from_previous_inverse(self):
+        """
+        Ensures that if any fields were added to the model,
+        they were accounted for in the create_from_previous function.
+        """
+        new_session = self.game_session.create_from_previous(
+            new_mode=GameModes.TUGOFWAR,
+        )
+        new_session.mode = self.game_session.mode
+        new_session.is_finished = self.game_session.is_finished
+        new_session.created_at = self.game_session.created_at
+        new_session.started_at = self.game_session.started_at
+        new_session.finished_at = self.game_session.finished_at
+        new_session.session_id = self.game_session.session_id
+        new_session.id = self.game_session.id
+
+        self.assertEqual(new_session, self.game_session)
+
+    def test_create_from_previous_fails_with_unknown_mode(self):
+        """
+        Attempts to create a session with mode not listed
+        in GameModes should raise ValidationError.
+        """
+        mode = '`'
+        with self.assertRaises(ValidationError):
+            self.game_session.create_from_previous(
+                new_mode=mode,
+            )
+
 
 class GameSessionSaveResultsTestCase(TestCase):
     """

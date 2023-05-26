@@ -117,7 +117,7 @@ class SingleGameControllerTestCase(TestCase):
         local_player = self.controller._get_player(self.player_record)
         player_object = initial_state_event.data['player']
 
-        self.assertEqual(local_player.local_id, self.player_record.pk)
+        self.assertEqual(local_player.id, self.player_record.pk)
         self.assertEqual(local_player.displayed_name,
                          self.player_record.displayed_name)
         self.assertEqual(local_player.score, 0)
@@ -335,9 +335,19 @@ class SingleGameControllerTestCase(TestCase):
         self.assertIsNotNone(self.session_record.finished_at)
         self.assertTrue(self.session_record.is_finished)
 
-    # def test_player_ready_for_nonexistent_player_yields_nothing(self):
-    #     # TODO
-    #     pass
+    def test_player_ready_for_nonexistent_player_yields_nothing(self):
+        """
+        If ready_state was submitted for player not present
+        in the session, message should be discarded
+        """
+        ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True)
+        )
+        server_events = self.controller.player_event(ready_event)
+
+        self.assertEqual(len(server_events), 0)
+
     #
     # def test_player_word_event(self):
     #     """

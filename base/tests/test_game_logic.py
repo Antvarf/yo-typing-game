@@ -586,6 +586,7 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
+            data=PlayerMessage(),
         )
         self.controller.START_GAME_DELAY = 1
         self.controller.player_event(join_event)
@@ -612,6 +613,7 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
+            data=PlayerMessage(),
         )
         self.controller.START_GAME_DELAY = 0.2
         self.controller.player_event(join_event)
@@ -636,6 +638,7 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
+            data=PlayerMessage(),
         )
         self.controller.player_event(join_event)
         self.controller._start_game()
@@ -661,6 +664,7 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
+            data=PlayerMessage(),
         )
         self.controller.player_event(join_event)
         self.controller._start_game()
@@ -670,109 +674,220 @@ class SingleGameControllerTestCase(TestCase):
 
         self.assertEqual(len(server_events), 0)
 
-    # TODO: add test for game over condition
+    # def test_start_game(self):
+    #     pass
 
     # def test_game_over(self):
     #     pass
 
-    # def test_player_leaving_can_start_game(self):
-    #     """
-    #     If everyone but the player leaving was ready, then
-    #     the process should be considered finished.
-    #     """
-    #     p1_joined_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     p2_joined_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.other_player_record),
-    #     )
-    #     p1_ready_event = Event(
-    #         type=Event.PLAYER_READY_STATE,
-    #         data=PlayerMessage(player=self.player_record, payload=True),
-    #     )
-    #     p2_left_event = Event(
-    #         type=Event.PLAYER_LEFT,
-    #         data=PlayerMessage(player=self.other_player_record),
-    #     )
-    #     players_before = self.session_record.players_now
-    #     self.controller.player_event(p1_joined_event)
-    #     self.controller.player_event(p2_joined_event)
-    #     self.controller.player_event(p1_ready_event)
-    #     server_events = self.controller.player_event(p2_left_event)
-    #     self.session_record.refresh_from_db()
-    #
-    #     self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-    #     self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
-    #     self.assertEqual(server_events[1].target, Event.TARGET_ALL)
-    #     self.assertEqual(server_events[1].type, Event.SERVER_GAME_BEGINS)
-    #     self.assertEqual(self.session_record.players_now, players_before + 1)
-    #     self.assertIsNotNone(self.session_record.started_at)
-    #
-    # def test_player_leaving_can_end_voting(self):
-    #     """
-    #     If everyone but the player leaving has voted, then end the vote stage.
-    #     """
-    #     p1_joined_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     p2_joined_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.other_player_record),
-    #     )
-    #     p1_vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(
-    #             player=self.player_record,
-    #             payload=GameModes.labels[0],
-    #         ),
-    #     )
-    #     p2_left_event = Event(
-    #         type=Event.PLAYER_LEFT,
-    #         data=PlayerMessage(player=self.other_player_record)
-    #     )
-    #
-    #     players_before = self.session_record.players_now
-    #     self.controller.player_event(p1_joined_event)
-    #     self.controller.player_event(p2_joined_event)
-    #     self.controller._start_game()
-    #     self.controller._game_over()
-    #     self.controller.player_event(p1_vote_event)
-    #     server_events = self.controller.player_event(p2_left_event)
-    #     self.session_record.refresh_from_db()
-    #
-    #     self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-    #     self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
-    #     self.assertEqual(server_events[1].target, Event.TARGET_ALL)
-    #     self.assertEqual(server_events[1].type, Event.SERVER_NEW_GAME)
-    #     self.assertEqual(self.session_record.players_now, players_before + 1)
-    #     self.assertIsNotNone(self.session_record.finished_at)
+    def test_player_leaving_can_start_game(self):
+        """
+        If everyone but the player leaving was ready, then
+        the process should be considered finished.
+        """
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True),
+        )
+        p2_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        players_before = self.session_record.players_now
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller.player_event(p1_ready_event)
+        server_events = self.controller.player_event(p2_left_event)
+        self.session_record.refresh_from_db()
 
-    # def test_no_session_creation_with_zero_votes(self):
-    #     """
-    #     Check if everyone leaves without voting new session will not be created
-    #     """
-    #     p1_joined_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.player_record),
-    #     )
-    #     p2_joined_event = Event(
-    #         type=Event.PLAYER_JOINED,
-    #         data=PlayerMessage(player=self.other_player_record),
-    #     )
-    #     vote_event = Event(
-    #         type=Event.PLAYER_MODE_VOTE,
-    #         data=PlayerMessage(player=self.player_record,
-    #                            payload=GameModes.labels[0]),
-    #     )
-    #     self.controller.player_event(p1_joined_event)
-    #     self.controller.player_event(p2_joined_event)
-    #     self.controller._start_game()
-    #     self.controller._game_over()
-    #
-    #     server_events_1 = self.controller.player_event(vote_event)
-    #     server_events_2 = self.controller.player_event(vote_event)
-    #
-    #     self.assertEqual(server_events_1, server_events_2) # vote counts are eq
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(server_events[1].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[1].type, Event.SERVER_GAME_BEGINS)
+        self.assertEqual(self.session_record.players_now, players_before + 1)
+
+    def test_player_leaving_can_end_voting(self):
+        """
+        If everyone but the player leaving has voted, then end the vote stage.
+        """
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_vote_event = Event(
+            type=Event.PLAYER_MODE_VOTE,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=GameModes.labels[0],
+            ),
+        )
+        p2_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+
+        players_before = self.session_record.players_now
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller._start_game()
+        self.controller._game_over()
+        self.controller.player_event(p1_vote_event)
+        server_events = self.controller.player_event(p2_left_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(server_events[1].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[1].type, Event.SERVER_NEW_GAME)
+        self.assertEqual(self.session_record.players_now, players_before + 1)
+
+    def test_game_begins_is_not_fired_while_playing(self):
+        """
+        Test that if session is not in PREPARATION stage, GAME_BEGINS is not
+        triggered on player_leave
+        """
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True),
+        )
+        p2_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        players_before = self.session_record.players_now
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller.player_event(p1_ready_event)
+        self.controller._start_game()
+        server_events = self.controller.player_event(p2_left_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(len(server_events), 1)
+        self.assertEqual(self.session_record.players_now, players_before + 1)
+
+    def test_game_begins_is_not_fired_while_voting(self):
+        """
+        Test that if session is not in PREPARATION stage, GAME_BEGINS is not
+        triggered on player_leave
+        """
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True),
+        )
+        p2_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        players_before = self.session_record.players_now
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller.player_event(p1_ready_event)
+        self.controller._start_game()
+        self.controller._game_over()
+        server_events = self.controller.player_event(p2_left_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(len(server_events), 1)
+        self.assertEqual(self.session_record.players_now, players_before + 1)
+
+    def test_new_game_is_not_fired_while_prep(self):
+        """
+        Test that if session is not in VOTING stage, NEW_GAME is not
+        triggered on player_leave
+        """
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        self.controller._player_controller.set_player_vote(
+            self.player_record.pk,
+            GameModes.SINGLE,
+        )
+        p2_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        players_before = self.session_record.players_now
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        server_events = self.controller.player_event(p2_left_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(len(server_events), 1)
+        self.assertEqual(self.session_record.players_now, players_before + 1)
+
+    def test_new_game_is_not_fired_while_game(self):
+        """
+        Test that if session is not in VOTING stage, NEW_GAME is not
+        triggered on player_leave
+        """
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        self.controller._player_controller.set_player_vote(
+            self.player_record.pk,
+            GameModes.SINGLE,
+        )
+        p2_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        players_before = self.session_record.players_now
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller._start_game()
+        server_events = self.controller.player_event(p2_left_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(server_events[0].target, Event.TARGET_ALL)
+        self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(len(server_events), 1)
+        self.assertEqual(self.session_record.players_now, players_before + 1)
+
+    # TODO: add last player disconnect tests
+
+    # TODO: add test for game over condition (should be per mode)
+

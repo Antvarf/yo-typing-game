@@ -146,12 +146,12 @@ components:
     ## General schema definitions
     event:
       type: object
-      discriminator: event
+      discriminator: type
       properties:
-        event:
+        type:
           type: string
       required:
-        - event
+        - type
 
     player_schema:
       type: object

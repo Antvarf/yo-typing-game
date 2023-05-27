@@ -177,6 +177,10 @@ class BasePlayerController(ABC):
     def remove_player(self, id: int):
         if id in self._players_dict:
             player = self._players_dict.pop(id)
+            if player.is_ready:
+                self._ready_count -= 1
+            if player.voted_for is not None:
+                self._voted_count -= 1
             self._remove_from_repr(player)
             self.session.players_now -= 1
             self.session.save()
@@ -204,7 +208,8 @@ class BasePlayerController(ABC):
 
     @property
     def votes(self) -> Counter:
-        counts = Counter(v.voted_for for v in self._players_dict.values())
+        counts = Counter(v.voted_for
+                         for v in self._players_dict.values() if v.voted_for)
         return counts
 
     def set_ready_state(self, id: int, state: bool):
@@ -377,6 +382,16 @@ class BaseGame(ABC):
         if self._player_exists(player):
             self._remove_player(player)
             events.append(self._get_players_update_event())
+            if self._can_start():
+                game_begins_event = self._get_game_begins_event()
+                events.append(game_begins_event)
+                if self.START_GAME_DELAY <= 0:
+                    start_game_event = self._start_game()
+                    events.append(start_game_event)
+                else:
+                    self._stage_start_game(self.START_GAME_DELAY)
+            if self._is_voting_finished():
+                events.append(self._create_new_game())
         return events
 
     def _handle_player_ready(self,
@@ -435,9 +450,7 @@ class BaseGame(ABC):
                 events.append(self._get_modes_available_event())
 
             if self._is_voting_finished():
-                self._create_new_game()
-                events.append(self._get_new_game_event())
-                self._state = None
+                events.append(self._create_new_game())
         return events
 
     def _get_initial_state_event(self, player: LocalPlayer) -> Event:
@@ -506,21 +519,18 @@ class BaseGame(ABC):
         return self._player_controller.get_player(player.pk)
 
     def _can_start(self) -> bool:
+        if self._state is not self.STATE_PREPARING:
+            return False
         players_ready = self._player_controller.ready_count
         players_count = self._player_controller.player_count
         return players_ready >= players_count
 
     def _is_voting_finished(self) -> bool:
+        if self._state is not self.STATE_VOTING:
+            return False
         players_voted = self._player_controller.voted_count
         players_count = self._player_controller.player_count
         return players_voted >= players_count
-
-    def _stage_start_game(self, countdown: int):
-        """
-        Set _game_begins_at for future ticks to compare tz.now() against
-        """
-        offset = timezone.timedelta(seconds=countdown)
-        self._game_begins_at = timezone.now() + offset
 
     def _can_player_join(self, player: Player) -> bool:
         if 0 < self._session.players_max <= self._player_count:
@@ -546,6 +556,13 @@ class BaseGame(ABC):
     @property
     def _player_count(self) -> int:
         return self._player_controller.player_count
+
+    def _stage_start_game(self, countdown: int):
+        """
+        Set _game_begins_at for future ticks to compare tz.now() against
+        """
+        offset = timezone.timedelta(seconds=countdown)
+        self._game_begins_at = timezone.now() + offset
 
     def _start_game(self) -> Event:
         """
@@ -593,56 +610,7 @@ class BaseGame(ABC):
     def results(self):
         pass
 
-    # def _voting_finished(self):
-    #     return self._vote_count == self._players_count
-    #
-    # @property
-    # def _players_count(self):
-    #     return len(self._players_list)
-    #
-    # @property
-    # def _vote_count(self):
-    #     return len([vote for vote in self._vote_list
-    #                 if vote['mode'] is not None])
-
-    # @abstractmethod
-    # @property
-    # def _vote_list(self):
-    #     pass
-    #
-    # @abstractmethod
-    # @property
-    # def _players_list(self):
-    #     pass
-    #
-    # @abstractmethod
-    # def _insert_player_into_repr(self, player):
-    #     pass
-    #
-    # @abstractmethod
-    # def _remove_player_from_repr(self, player):
-    #     pass
-    #
-    # @abstractmethod
-    # def _is_valid_message(self):
-    #     pass
-    #
-    # @abstractmethod
-    # def _check_vote_timeout(self):
-    #     pass
-    #
-    # @abstractmethod
-    # def _update_players(self, players):
-    #     pass
-    #
-    # @abstractmethod
-    # def _can_start(self):
-    #     pass
-    #
-    # @abstractmethod
-    # def _switch_team(self):
-    #     pass
-    def _create_new_game(self):
+    def _create_new_game(self) -> Event:
         """A function that creates a game with the same settings as current"""
         # TODO: refactor this list comprehension hell
         most_common = self._player_controller.votes.most_common()
@@ -656,6 +624,9 @@ class BaseGame(ABC):
             new_mode=new_mode_value,
         )
         self._new_session_id = new_session
+        self._state = None
+        event = self._get_new_game_event()
+        return event
 
 
 class SingleGameController(BaseGame):
@@ -672,4 +643,6 @@ class SingleGameController(BaseGame):
         self._game_ends_at = self._session.started_at + offset
 
     def _is_game_over(self) -> bool:
+        if self._state is not self.STATE_PLAYING:
+            return False
         return self._game_ends_at <= timezone.now()

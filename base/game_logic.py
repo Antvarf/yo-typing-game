@@ -17,7 +17,7 @@ from base.models import (
 
 @dataclass
 class PlayerMessage:
-    player: Player
+    player: Player = None
     payload: typing.Any = None
 
     def to_dict(self):
@@ -228,6 +228,16 @@ class BasePlayerController(ABC):
             player.voted_for = mode
         return
 
+    def set_time_left(self, id: int, time_left: float):
+        """
+        Sets the players .time_left field to :time_left:
+        """
+        player = self.get_player(id)
+        if player is not None:
+            player.time_left = time_left
+            self._update_repr_from_object(player)
+        return
+
     @property
     def time_elapsed(self) -> int:
         if self.session.started_at is None:
@@ -289,7 +299,7 @@ class PlayerPlainController(BasePlayerController):
         time_delta = self._last_tick - prev_tick
 
         for player in self._players_dict.values():
-            player.time_left -= time_delta
+            player.time_left -= time_delta.total_seconds()
             self._update_repr_from_object(player)
 
 
@@ -302,7 +312,7 @@ class BaseGame(ABC):
     player_controller_class = PlayerPlainController
     player_class = LocalPlayer
 
-    GAME_BEGINS_COUNTDOWN = 0
+    START_GAME_DELAY = 0
 
     def __init__(self, session_id=None):
         self._session = GameSession.objects.get(session_id=session_id)
@@ -333,7 +343,7 @@ class BaseGame(ABC):
             Event.PLAYER_LEFT: self._handle_player_leave,
             Event.PLAYER_READY_STATE: self._handle_player_ready,
             Event.PLAYER_WORD: self._handle_word,
-            # Event.TRIGGER_TICK: self._handle_tick,
+            Event.TRIGGER_TICK: self._handle_tick,
             Event.PLAYER_MODE_VOTE: self._handle_player_vote,
         }
         if hasattr(self, 'get_extending_event_handlers'):
@@ -382,11 +392,11 @@ class BaseGame(ABC):
             if self._can_start():
                 game_begins_event = self._get_game_begins_event()
                 events.append(game_begins_event)
-                if self.GAME_BEGINS_COUNTDOWN <= 0:
+                if self.START_GAME_DELAY <= 0:
                     start_game_event = self._start_game()
                     events.append(start_game_event)
                 else:
-                    self._stage_start_game(self.GAME_BEGINS_COUNTDOWN)
+                    self._stage_start_game(self.START_GAME_DELAY)
         return events
 
     def _handle_word(self, player: Player, payload: str) -> list[Event]:
@@ -397,22 +407,24 @@ class BaseGame(ABC):
             events.append(self._get_players_update_event())
         return events
 
-    # def _handle_tick(self) -> list[Event]:
-    #     events = []
-    #     if self._state is self.STATE_PLAYING:
-    #         self._player_controller.make_tick()
-    #         tick_event = Event(type=Event.SERVER_TICK,
-    #                            target=Event.TARGET_ALL, data=self._players)
-    #         events.append(tick_event)
-    #     elif self._state is self.STATE_VOTING:
-    #         # TODO: voting protocol
-    #         if self._vote_timeout():
-    #             event = Event(target=Event.TARGET_ALL,
-    #                           type=Event.SERVER_START_GAME,
-    #                           data=self._vote_results)
-    #             events.append(event)
-    #     return events
-    #
+    def _handle_tick(self, **kwargs) -> list[Event]:
+        events = []
+        if self._state is self.STATE_PREPARING:
+            if self._game_begins_at is not None:
+                if timezone.now() >= self._game_begins_at:
+                    events.append(self._start_game())
+
+        elif self._state is self.STATE_PLAYING:
+            if self._is_game_over():
+                events.append(self._game_over())
+            else:
+                self._player_controller.make_tick()
+                events.append(self._get_players_update_event())
+
+        elif self._state is self.STATE_VOTING:
+            pass
+        return events
+
     def _handle_player_vote(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is self.STATE_VOTING:
@@ -449,7 +461,7 @@ class BaseGame(ABC):
     def _get_game_begins_event(self) -> Event:
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_GAME_BEGINS,
-                      data=self.GAME_BEGINS_COUNTDOWN)
+                      data=self.START_GAME_DELAY)
         return event
 
     def _get_new_word_event(self) -> Event:
@@ -545,6 +557,8 @@ class BaseGame(ABC):
         self._state = self.STATE_PLAYING
         self._session.start_game()
 
+        self._post_start()
+
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_START_GAME, data={})
         return event
@@ -564,6 +578,15 @@ class BaseGame(ABC):
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_GAME_OVER, data=self.results)
         return event
+
+    @abstractmethod
+    def _post_start(self):
+        # TODO: reimplement it using decorators?
+        pass
+
+    @abstractmethod
+    def _is_game_over(self) -> bool:
+        pass
 
     @property
     @abstractmethod
@@ -636,6 +659,17 @@ class BaseGame(ABC):
 
 
 class SingleGameController(BaseGame):
+    GAME_DURATION_SEC = 60
+
     @property
     def results(self) -> list[dict]:
         return self._players.values()
+
+    def _post_start(self):
+        offset = timezone.timedelta(seconds=self.GAME_DURATION_SEC)
+        for p in self._players:
+            self._player_controller.set_time_left(p, self.GAME_DURATION_SEC)
+        self._game_ends_at = self._session.started_at + offset
+
+    def _is_game_over(self) -> bool:
+        return self._game_ends_at <= timezone.now()

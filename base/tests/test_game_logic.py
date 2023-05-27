@@ -1,4 +1,5 @@
 import copy
+import time
 
 from django.db import transaction
 from django.test import TestCase
@@ -52,8 +53,6 @@ class SingleGameControllerTestCase(TestCase):
     ---
     TODO:
         * add basic tests for the following messages:
-            - 'game_over'
-            - 'new_game'
             - 'start_game'
         * make this test case inheritable so that it applies to every game mode
         * test invalid events handling
@@ -304,7 +303,7 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(game_begins_event.target, Event.TARGET_ALL)
         self.assertEqual(game_begins_event.type, Event.SERVER_GAME_BEGINS)
 
-        if self.controller.GAME_BEGINS_COUNTDOWN <= 0:
+        if self.controller.START_GAME_DELAY <= 0:
             start_game_event = server_events[2]
             self.assertEqual(start_game_event.target, Event.TARGET_ALL)
             self.assertEqual(start_game_event.type, Event.SERVER_START_GAME)
@@ -530,6 +529,7 @@ class SingleGameControllerTestCase(TestCase):
         server_events_2 = self.controller.player_event(vote_event)
 
         self.assertEqual(server_events_1, server_events_2) # vote counts are eq
+
     def test_no_session_creation_with_zero_votes(self):
         """
         If last vote needed is submitted multiple times,
@@ -559,6 +559,118 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(server_events_1[0].type, Event.SERVER_VOTES_UPDATE)
         self.assertEqual(server_events_1[1].type, Event.SERVER_NEW_GAME)
         self.assertEqual(len(server_events_2), 0)
+
+    def test_tick(self):
+        """
+        Here comes the "hehe" part of the process...
+
+        Ticks during PREPARATION stage are used to implement START_GAME
+        delay after GAME_BEGINS. If tick arrives after the point in time the
+        game should start, START_GAME event is fired.
+
+        Ticks during PLAYING stage are used to update state of all players
+
+        Ticks during VOTING stage can be used to implement voting timeout,
+        this might be implemented in the future.
+        """
+        pass
+
+    def test_tick_before_start_game_yields_nothing(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True)
+        )
+        tick_event = Event(
+            type=Event.TRIGGER_TICK,
+        )
+        self.controller.START_GAME_DELAY = 1
+        self.controller.player_event(join_event)
+        players_update_event, game_begins_event =\
+            self.controller.player_event(ready_event)
+        tick_response_events = self.controller.player_event(tick_event)
+
+        self.assertEqual(players_update_event.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(game_begins_event.type,
+                         Event.SERVER_GAME_BEGINS)
+        self.assertEqual(game_begins_event.data,
+                         self.controller.START_GAME_DELAY)
+        self.assertEqual(len(tick_response_events), 0)
+
+    def test_tick_after_start_game_returns_start_game(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        ready_event = Event(
+            type=Event.PLAYER_READY_STATE,
+            data=PlayerMessage(player=self.player_record, payload=True)
+        )
+        tick_event = Event(
+            type=Event.TRIGGER_TICK,
+        )
+        self.controller.START_GAME_DELAY = 0.2
+        self.controller.player_event(join_event)
+        players_update_event, game_begins_event = \
+            self.controller.player_event(ready_event)
+        time.sleep(self.controller.START_GAME_DELAY)
+        tick_response_events = self.controller.player_event(tick_event)
+
+        self.assertEqual(players_update_event.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(game_begins_event.type,
+                         Event.SERVER_GAME_BEGINS)
+        self.assertEqual(game_begins_event.data,
+                         self.controller.START_GAME_DELAY)
+        self.assertEqual(tick_response_events[0].type, Event.SERVER_START_GAME)
+        self.assertEqual(tick_response_events[0].target, Event.TARGET_ALL)
+
+    def test_tick_while_playing_updates_players(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        tick_event = Event(
+            type=Event.TRIGGER_TICK,
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+
+        players_update_event_1, = self.controller.player_event(tick_event)
+        players_data_1 = copy.deepcopy(players_update_event_1.data)
+
+        time.sleep(0.5)
+
+        players_update_event_2, = self.controller.player_event(tick_event)
+        players_data_2 = copy.deepcopy(players_update_event_2.data)
+
+        self.assertEqual(players_update_event_1.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(players_update_event_2.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertNotEqual(players_data_1, players_data_2)
+
+    def test_tick_while_voting_does_nothing(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        tick_event = Event(
+            type=Event.TRIGGER_TICK,
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        self.controller._game_over()
+
+        server_events = self.controller.player_event(tick_event)
+
+        self.assertEqual(len(server_events), 0)
+
+    # TODO: add test for game over condition
 
     # def test_game_over(self):
     #     pass

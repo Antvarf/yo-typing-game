@@ -382,6 +382,8 @@ class BaseGame(ABC):
         if self._player_exists(player):
             self._remove_player(player)
             events.append(self._get_players_update_event())
+            if not self._player_count and self._state is self.STATE_PLAYING:
+                events.append(self._game_over())
             if self._can_start():
                 game_begins_event = self._get_game_begins_event()
                 events.append(game_begins_event)
@@ -523,14 +525,14 @@ class BaseGame(ABC):
             return False
         players_ready = self._player_controller.ready_count
         players_count = self._player_controller.player_count
-        return players_ready >= players_count
+        return players_count and players_ready >= players_count
 
     def _is_voting_finished(self) -> bool:
         if self._state is not self.STATE_VOTING:
             return False
         players_voted = self._player_controller.voted_count
         players_count = self._player_controller.player_count
-        return players_voted >= players_count
+        return players_count and players_voted >= players_count
 
     def _can_player_join(self, player: Player) -> bool:
         if 0 < self._session.players_max <= self._player_count:

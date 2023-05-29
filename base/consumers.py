@@ -10,8 +10,9 @@ from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.auth.hashers import check_password
 from channels.consumer import SyncConsumer
-from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from channels.generic.websocket import AsyncJsonWebsocketConsumer, JsonWebsocketConsumer
 
+from .game_logic import Event, PlayerMessage, SingleGameController
 from .models import (
     Player,
     GameSession,
@@ -32,25 +33,68 @@ WORDS = get_regular_words()
 YO_WORDS = get_yo_words()
 
 
-class BaseGameConsumer(AsyncJsonWebsocketConsumer):
-    MODE = "dummy"
+class BaseGameConsumer(JsonWebsocketConsumer):
+    controller_cls = SingleGameController
 
-    GAME_START_DELAY = 3
-    GAME_DURATION = 60
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.controller = None
+        self.player = None
+        self.session_id = None
+        self.usernames = set()
 
-    async def connect(self):
-        if self.can_connect():
-            await self.accept()
-            self.is_host = False
-            error = await self.init_session()
-            if (not error) and await self.can_join():
-                await self.update_player_count(increase=True)
-            else:
-                await self.disconnect(418)
-                await self.close()
+    def connect(self):
+        events = []
+        self.accept()
+        session_id = self.scope["url_route"]["kwargs"]["session_id"]
+        self.session_id = session_id
+        self.controller = self.get_controller_from_session_id(session_id)
+        self.player = self._init_player()
+        if self.player is None:
+            error_message = Event(
+                type=Event.SERVER_ERROR,
+                data='either `username` or `jwt` '
+                     'query params should be provided'
+            )
+            events.append(error_message)
         else:
-            await self.disconnect(418)
-            await self.close()
+            player_joined_message = Event(
+                type=Event.PLAYER_JOINED,
+                data=PlayerMessage(
+                    player=self.player,
+                )
+            )
+            events.extend(self.controller.player_event(player_joined_message))
+        self.send_events(events)
+
+    def _init_player(self) -> Player | None:
+        username, jwt = self.get_query_username(), self.get_query_jwt()
+
+        if username:
+            username = self.get_unique_username(username)
+            self.usernames.add(username)
+
+            player = Player.objects.create(displayed_name=username)
+            return player
+
+    def get_query_username(self):
+        params = parse_qs(self.scope["query_string"].decode())
+        return params.get('username', (None,))[0]
+
+    def get_query_jwt(self):
+        return
+
+    def send_events(self, events: list[Event]):
+        for event in events:
+            self.send_json(event.to_dict())
+
+    def get_controller_from_session_id(self, session_id: str):
+        if session_id not in SESSIONS:
+            SESSIONS[session_id] = self.controller_cls(session_id)
+        return SESSIONS[session_id]
+
+    def disconnect(self, exit_code):
+        SESSIONS.pop(self.session_id, None)
 
     def can_connect(self):
         if not hasattr(self, "session"):
@@ -83,50 +127,49 @@ class BaseGameConsumer(AsyncJsonWebsocketConsumer):
         except:
             return False
 
-    async def disconnect(self, exit_code):
-        if hasattr(self, "session"):
-            self.session["players"].pop(self.username)
-
-            await self.channel_layer.group_send(
-                self.session_id,
-                {
-                    "type": "session.players.update",
-                    "action": "player_left",
-                    "username": self.username,
-                },
-                )
-
-            if self.player["ready"]:
-                self.session["ready_count"] -= 1
-            if self.player["voted"]:
-                self.session["vote_count"] -= 1
-            if "out" in self.player and self.player["out"]:
-                self.session["out_count"] -= 1
-
-            await self.check_ready_states()
-            await self.check_vote_states()
-
-            await self.channel_layer.group_discard(
-                self.session_id,
-                self.channel_name,
-                )
-            if self.is_host:
-                await self.channel_layer.group_discard(
-                    "session_hosts",
-                    self.channel_name,
-                    )
-    
-                if self.session["players"]:
-                    new_host = random.choice(list(self.session["players"]))
-                    await self.channel_layer.group_send(
-                        self.session_id,
-                        {
-                            "type": "session.new.host",
-                            "username": new_host,
-                        },
-                        )
-                    print("New host: {}".format(new_host))
-            await self.update_player_count(increase=False)
+        # if hasattr(self, "session"):
+        #     self.session["players"].pop(self.username)
+        #
+        #     await self.channel_layer.group_send(
+        #         self.session_id,
+        #         {
+        #             "type": "session.players.update",
+        #             "action": "player_left",
+        #             "username": self.username,
+        #         },
+        #         )
+        #
+        #     if self.player["ready"]:
+        #         self.session["ready_count"] -= 1
+        #     if self.player["voted"]:
+        #         self.session["vote_count"] -= 1
+        #     if "out" in self.player and self.player["out"]:
+        #         self.session["out_count"] -= 1
+        #
+        #     await self.check_ready_states()
+        #     await self.check_vote_states()
+        #
+        #     await self.channel_layer.group_discard(
+        #         self.session_id,
+        #         self.channel_name,
+        #         )
+        #     if self.is_host:
+        #         await self.channel_layer.group_discard(
+        #             "session_hosts",
+        #             self.channel_name,
+        #             )
+        #
+        #         if self.session["players"]:
+        #             new_host = random.choice(list(self.session["players"]))
+        #             await self.channel_layer.group_send(
+        #                 self.session_id,
+        #                 {
+        #                     "type": "session.new.host",
+        #                     "username": new_host,
+        #                 },
+        #                 )
+        #             print("New host: {}".format(new_host))
+        #     await self.update_player_count(increase=False)
 
     async def receive_json(self, content):
         msg_type = content.get("event", None)
@@ -212,12 +255,6 @@ class BaseGameConsumer(AsyncJsonWebsocketConsumer):
             "players": list(self.session["players"].values()),
             })
 
-    def get_unique_mangled(self, username):
-        new_username = username
-        while new_username in self.session["players"]:
-            new_username = username + "_" + secrets.token_urlsafe(3)
-        return new_username
-
     async def switch_team(self, msg):
         pass
 
@@ -274,13 +311,7 @@ class BaseGameConsumer(AsyncJsonWebsocketConsumer):
         if sesh.is_valid():
             return sesh.save().session_id
 
-    def get_query_username(self):
-        params = parse_qs(self.scope["query_string"].decode())
-        try:
-            if params["username"][0]:
-                return params["username"][0]
-        except:
-            return None
+
 
     async def init_session(self):
         """
@@ -330,20 +361,6 @@ class BaseGameConsumer(AsyncJsonWebsocketConsumer):
             "data": self.words,
             })
 
-    def init_player(self):
-        player = {
-            "username": self.username,
-            "speed": 0.0,
-            "score": 0,
-            "ready": False,
-            "voted": False,
-            "anonymous": True if self.scope.get("user", AnonymousUser) \
-                         is AnonymousUser else False,
-            "correct_words": 0,
-            "incorrect_words": 0,
-            "mistake_ratio": 0.0,
-            }
-        return player
 
     def add_session_player(self):
         self.player = self.init_player()

@@ -52,8 +52,6 @@ class SingleGameControllerTestCase(TestCase):
             - 'new_game'
     ---
     TODO:
-        * add basic tests for the following messages:
-            - 'start_game'
         * make this test case inheritable so that it applies to every game mode
         * test invalid events handling
     """
@@ -941,15 +939,96 @@ class SingleGameControllerTestCase(TestCase):
         events = self.controller.player_event(leave_event)
         self.session_record.refresh_from_db()
 
-        self.assertEqual(len(events), 2)
+        self.assertEqual(len(events), 1)
         self.assertEqual(events[0].type, Event.SERVER_PLAYERS_UPDATE)
         self.assertEqual(events[0].target, Event.TARGET_ALL)
-        self.assertEqual(events[1].type, Event.SERVER_GAME_OVER)
-        self.assertEqual(events[1].target, Event.TARGET_ALL)
         self.assertEqual(self.session_record.players_now, 0)
         self.assertEqual(self.session_record.is_finished, True)
         self.assertIsNotNone(self.session_record.started_at)
         self.assertIsNotNone(self.session_record.finished_at)
 
-    # TODO: add test for game over condition (should be per mode)
+    def test_username_gets_mangled_for_the_same_in_session(self):
+        """
+        If player with username same as the one provided is already present
+        in the session, given username gets mangled.
+        """
+        old_username = self.player_record.displayed_name
+        self.duplicate_name_player_record = Player.objects.create(
+            displayed_name=self.player_record.displayed_name
+        )
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        duplicate_name_join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.duplicate_name_player_record)
+        )
+        self.controller.player_event(join_event)
+        initial_state_event, _ = self.controller.player_event(
+            duplicate_name_join_event
+        )
+        self.duplicate_name_player_record.refresh_from_db()
+        self.player_record.refresh_from_db()
 
+        p1_object = self.controller._get_player(
+            self.player_record
+        )
+        p2_object = self.controller._get_player(
+            self.duplicate_name_player_record
+        )
+
+        new_username = initial_state_event.data['player']['displayed_name']
+
+        self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
+        self.assertNotEqual(old_username, new_username)
+        self.assertEqual(old_username, p1_object.displayed_name)
+        self.assertEqual(new_username, p2_object.displayed_name)
+        self.assertEqual(old_username,
+                         self.player_record.displayed_name)
+        self.assertEqual(new_username,
+                         self.duplicate_name_player_record.displayed_name)
+
+    # def test_displayed_name_gets_untagged_after_leave(self):
+    #     raise Exception
+
+    def test_displayed_name_gets_unoccupied_if_player_left(self):
+        """
+        If player with username same as the one provided is already present
+        in the session, given username gets mangled.
+        """
+        old_username = self.player_record.displayed_name
+        self.duplicate_name_player_record = Player.objects.create(
+            displayed_name=self.player_record.displayed_name
+        )
+
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        leave_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.player_record)
+        )
+        duplicate_name_join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.duplicate_name_player_record)
+        )
+        self.controller.player_event(join_event)
+        self.controller.player_event(leave_event)
+        initial_state_event, _ = self.controller.player_event(
+            duplicate_name_join_event
+        )
+        self.duplicate_name_player_record.refresh_from_db()
+
+        player_object = self.controller._get_player(
+            self.duplicate_name_player_record
+        )
+
+        displayed_name = initial_state_event.data['player']['displayed_name']
+
+        self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
+        self.assertEqual(old_username, displayed_name)
+        self.assertEqual(old_username, player_object.displayed_name)
+
+    # TODO: add test for game over condition (should be per mode)

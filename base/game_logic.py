@@ -1,4 +1,5 @@
 import random
+import secrets
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass, asdict
@@ -47,6 +48,7 @@ class Event:
     SERVER_NEW_GAME = 'new_game'
     SERVER_CLOSE_CONNECTION = 'close_connection'
     SERVER_TICK = 'tick'
+    SERVER_ERROR = 'error'
     # SERVER_USERNAME_SWITCH = 'username_switch'
 
     TRIGGER_TICK = 'tick'
@@ -61,6 +63,11 @@ class Event:
     def is_valid(self):
         # TODO: implement validation logic
         return True
+
+    def to_dict(self) -> dict:
+        result = asdict(self)
+        result.pop('target')
+        return result
 
 
 class PlayerJoinRefusedError(Exception):
@@ -134,7 +141,9 @@ class LocalPlayer:
     def __init__(self, player: Player):
         super().__init__()
         self._next_word = None
+        self.db_record = player
         self.displayed_name = player.displayed_name
+        self.old_displayed_name = None
         self.id = player.pk
 
     def add_word_iterator(self, words: list[str]):
@@ -145,8 +154,9 @@ class LocalPlayer:
             return
         return next(self._next_word)
 
-    def to_dict(self):
-        return asdict(self)
+    def to_dict(self) -> dict:
+        result = asdict(self)
+        return result
 
 
 class BasePlayerController(ABC):
@@ -158,6 +168,7 @@ class BasePlayerController(ABC):
         * updating player related fields on session record
     """
     def __init__(self, session: GameSession):
+        self._displayed_names = set()
         self._players_dict = {}
         self._players_repr = self._init_repr()
         self._ready_count = 0
@@ -166,10 +177,10 @@ class BasePlayerController(ABC):
         self.session = session
 
     def add_player(self, player: LocalPlayer):
+        self.add_to_unique_displayed_names(player)
         self._players_dict[player.id] = player
         self._insert_into_repr(player)
-        self.session.players_now += 1
-        self.session.save()
+        self._perform_database_update(self.session, player)
 
     def get_player(self, id: int) -> LocalPlayer | None:
         return self._players_dict.get(id, None)
@@ -182,8 +193,8 @@ class BasePlayerController(ABC):
             if player.voted_for is not None:
                 self._voted_count -= 1
             self._remove_from_repr(player)
-            self.session.players_now -= 1
-            self.session.save()
+            self.remove_from_unique_displayed_names(player)
+            self._perform_database_update(self.session, player)
 
     def handle_word(self, player_id: int, word: str):
         player_obj = self.get_player(player_id)
@@ -211,6 +222,21 @@ class BasePlayerController(ABC):
         counts = Counter(v.voted_for
                          for v in self._players_dict.values() if v.voted_for)
         return counts
+    
+    def add_to_unique_displayed_names(self, player: LocalPlayer):
+        new_displayed_name = \
+            player.old_displayed_name = player.displayed_name
+        while new_displayed_name in self._displayed_names:
+            tag = secrets.token_urlsafe(3)
+            new_displayed_name = f'{player.displayed_name}#{tag}'
+        player.displayed_name = new_displayed_name
+        self._displayed_names.add(player.displayed_name)
+        return
+
+    def remove_from_unique_displayed_names(self, player: LocalPlayer):
+        self._displayed_names.remove(player.displayed_name)
+        player.displayed_name = player.old_displayed_name
+        return
 
     def set_ready_state(self, id: int, state: bool):
         """
@@ -249,6 +275,18 @@ class BasePlayerController(ABC):
             return 0
         delta = self.session.started_at - timezone.now()
         return delta.total_seconds() + 1
+
+    def _perform_database_update(self, session: GameSession, player: LocalPlayer):
+        self._update_session_record(session)
+        self._update_player_record(player)
+
+    def _update_session_record(self, session: GameSession):
+        session.players_now = self.player_count
+        session.save()
+
+    def _update_player_record(self, player: LocalPlayer):
+        player.db_record.displayed_name = player.displayed_name
+        player.db_record.save()
 
     @abstractmethod
     def _init_repr(self):

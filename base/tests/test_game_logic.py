@@ -560,21 +560,6 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(server_events_1[1].type, Event.SERVER_NEW_GAME)
         self.assertEqual(len(server_events_2), 0)
 
-    def test_tick(self):
-        """
-        Here comes the "hehe" part of the process...
-
-        Ticks during PREPARATION stage are used to implement START_GAME
-        delay after GAME_BEGINS. If tick arrives after the point in time the
-        game should start, START_GAME event is fired.
-
-        Ticks during PLAYING stage are used to update state of all players
-
-        Ticks during VOTING stage can be used to implement voting timeout,
-        this might be implemented in the future.
-        """
-        pass
-
     def test_tick_before_start_game_yields_nothing(self):
         join_event = Event(
             type=Event.PLAYER_JOINED,
@@ -887,7 +872,84 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(len(server_events), 1)
         self.assertEqual(self.session_record.players_now, players_before + 1)
 
-    # TODO: add last player disconnect tests
+    def test_zero_players_after_leave_in_prep_does_not_start_game(self):
+        """
+        If all players leave while preparation, game does not start or finish.
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        leave_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.player_record)
+        )
+        self.controller.player_event(join_event)
+        events = self.controller.player_event(leave_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(events[0].target, Event.TARGET_ALL)
+        self.assertEqual(self.session_record.players_now, 0)
+        self.assertEqual(self.session_record.is_finished, False)
+        self.assertIsNone(self.session_record.started_at)
+        self.assertIsNone(self.session_record.finished_at)
+
+    def test_zero_players_after_leave_in_game_stops_the_game(self):
+        """
+        If all players leave while game is active, game finishes immediately.
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        leave_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.player_record)
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        events = self.controller.player_event(leave_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(events[0].target, Event.TARGET_ALL)
+        self.assertEqual(events[1].type, Event.SERVER_GAME_OVER)
+        self.assertEqual(events[1].target, Event.TARGET_ALL)
+        self.assertEqual(self.session_record.players_now, 0)
+        self.assertEqual(self.session_record.is_finished, True)
+        self.assertIsNotNone(self.session_record.started_at)
+        self.assertIsNotNone(self.session_record.finished_at)
+
+    def test_zero_players_after_leave_in_voting_does_not_create_new_game(self):
+        """
+        If all players leave while voting is active, no new game is created.
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        leave_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(player=self.player_record)
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+        self.controller._game_over()
+        events = self.controller.player_event(leave_event)
+        self.session_record.refresh_from_db()
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].type, Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(events[0].target, Event.TARGET_ALL)
+        self.assertEqual(events[1].type, Event.SERVER_GAME_OVER)
+        self.assertEqual(events[1].target, Event.TARGET_ALL)
+        self.assertEqual(self.session_record.players_now, 0)
+        self.assertEqual(self.session_record.is_finished, True)
+        self.assertIsNotNone(self.session_record.started_at)
+        self.assertIsNotNone(self.session_record.finished_at)
 
     # TODO: add test for game over condition (should be per mode)
 

@@ -1,6 +1,6 @@
 asyncapi: '2.6.0'
 info:
-  title: Jar Jar Binks typing app
+  title: Наше родное Ё
   version: '0.2'
   contact:
     name: JarJar
@@ -9,8 +9,8 @@ info:
 
 servers:
   public:
-    url: ws://api.gemini.com/ws
-    protocol: ws
+    url: wss://yo-typing.ru/ws
+    protocol: wss
 
 channels:
   /play/{session_id}/:
@@ -33,7 +33,7 @@ channels:
               type: string
               format: JWT
               description: authentication token for player (if authenticated)
-    publish:
+    subscribe:
       operationId: serverEvent
       summary: Events sent FROM server TO client
       message:
@@ -47,7 +47,7 @@ channels:
           - $ref: "#/components/messages/votes_update"
           - $ref: "#/components/messages/new_game"
 
-    subscribe:
+    publish:
       operationId: playerEvent
       summary: Events sent FROM client TO server
       message:

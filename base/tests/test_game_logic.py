@@ -9,7 +9,11 @@ from base.game_logic import (
     PlayerMessage,
     InvalidGameStateException,
     ControllerExistsException,
-    SingleGameController, PlayerJoinRefusedError,
+    SingleGameController,
+    PlayerJoinRefusedError,
+    ControllerStorage,
+    BaseGameController,
+    GameOverError,
 )
 from base.models import (
     GameSession,
@@ -1032,3 +1036,132 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(old_username, player_object.displayed_name)
 
     # TODO: add test for game over condition (should be per mode)
+
+
+class ControllerStorageTestCase(TestCase):
+    storage_class = ControllerStorage
+    controller_class = SingleGameController
+
+    def setUp(self):
+        self.session_record = GameSession.objects.create()
+
+    def test_get_new_controller(self):
+        """If not instantiated, spawn controller"""
+        storage_instance = self.storage_class()
+        controller = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        self.session_record.refresh_from_db()
+
+        self.assertTrue(issubclass(controller.__class__, BaseGameController))
+        self.assertEqual(controller._session, self.session_record)
+
+    def test_get_session_reuses_controller(self):
+        """If controller was instantiated already, return it instead"""
+        storage_instance = self.storage_class()
+        controller1 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        controller2 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        self.session_record.refresh_from_db()
+
+        self.assertIs(controller1, controller2)
+        self.assertEqual(controller1._session, self.session_record)
+
+    def test_instances_use_common_storage(self):
+        """Instance A and Instance B should have the common storage variable"""
+        storage_instance1 = self.storage_class()
+        storage_instance2 = self.storage_class()
+        controller1 = storage_instance1.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        controller2 = storage_instance2.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        self.session_record.refresh_from_db()
+
+        self.assertIs(controller1, controller2)
+        self.assertEqual(controller1._session, self.session_record)
+
+    def test_get_new_controller_raises_exception_for_started_session(self):
+        """Storage class should not supress controller exceptions"""
+        storage_instance = self.storage_class()
+        self.session_record.start_game()
+        with self.assertRaises(GameOverError):
+            storage_instance.get_game_controller(
+                controller_cls=self.controller_class,
+                session_id=self.session_record.session_id,
+            )
+
+    def test_get_new_controller_raises_exception_for_finished_session(self):
+        """Storage class should not supress controller exceptions"""
+        storage_instance = self.storage_class()
+        self.session_record.start_game()
+        self.session_record.game_over()
+        with self.assertRaises(GameOverError):
+            storage_instance.get_game_controller(
+                controller_cls=self.controller_class,
+                session_id=self.session_record.session_id,
+            )
+
+    def test_get_new_controller_raises_exception_for_nonexistent_session(self):
+        """Storage class should not supress controller exceptions"""
+        storage_instance = self.storage_class()
+        self.session_record.delete()
+        with self.assertRaises(GameSession.DoesNotExist):
+            storage_instance.get_game_controller(
+                controller_cls=self.controller_class,
+                session_id=self.session_record.session_id,
+            )
+
+    def test_delete_controller_on_zero_users(self):
+        """When <=0 users, pop controller from list"""
+        storage_instance = self.storage_class()
+        controller1 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        storage_instance.remove_game_controller(
+            session_id=self.session_record.session_id,
+        )
+
+        controller2 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        self.assertIsNot(controller1, controller2)  # The new one was spawned
+
+    def test_keep_controller_for_other_users_after_removing(self):
+        """If user counter is > 1 on remove, keep the controller instance"""
+        storage_instance = self.storage_class()
+        controller1 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        controller2 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        storage_instance.remove_game_controller(
+            session_id=self.session_record.session_id,
+        )
+
+        controller3 = storage_instance.get_game_controller(
+            controller_cls=self.controller_class,
+            session_id=self.session_record.session_id,
+        )
+        self.assertIs(controller2, controller3) # The old one was reused
+
+    def test_remove_nonexistent_controller_does_not_fail(self):
+        """If controller doesn't exist, return"""
+        storage_instance = self.storage_class()
+        storage_instance.remove_game_controller(
+            session_id=self.session_record.session_id,
+        )

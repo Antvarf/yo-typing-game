@@ -129,22 +129,22 @@ class LocalPlayer:
     displayed_name: str
     score: int = 0
     speed: float = 0
-    correct_words: int = 0
-    incorrect_words: int = 0
-    total_word_length: int = 0
-    mistake_ratio: float = 0.0
     time_left: float = None
     is_ready: bool = False
-    is_winner: bool = False
-    voted_for: str = None
 
     def __init__(self, player: Player):
         super().__init__()
-        self._next_word = None
-        self.db_record = player
+        self.id = player.pk
         self.displayed_name = player.displayed_name
         self.old_displayed_name = None
-        self.id = player.pk
+        self.db_record = player
+        self.total_word_length = 0
+        self.correct_words = 0
+        self.incorrect_words = 0
+        self.mistake_ratio = 0.0
+        self.is_winner = None
+        self.voted_for = None
+        self._next_word = None
 
     def add_word_iterator(self, words: list[str]):
         self._next_word = iter(words)
@@ -155,7 +155,23 @@ class LocalPlayer:
         return next(self._next_word)
 
     def to_dict(self) -> dict:
+        """
+        Returns basic player properties as dict representation
+        """
         result = asdict(self)
+        return result
+
+    def to_results_dict(self) -> dict:
+        """
+        A method extending player representation with additional stats
+        """
+        result = self.to_dict()
+        result.update({
+            'correct_words': self.correct_words,
+            'incorrect_words': self.incorrect_words,
+            'mistake_ratio': self.mistake_ratio,
+            'is_winner': self.is_winner,
+        })
         return result
 
 
@@ -204,6 +220,10 @@ class BasePlayerController(ABC):
     @property
     def players_data(self):
         return self._players_repr
+
+    @property
+    def players_full_data(self):
+        return [player.to_results_dict() for player in self._players_dict.values()]
 
     @property
     def player_count(self):
@@ -379,6 +399,10 @@ class BaseGame(ABC):
     @property
     def _players(self):
         return self._player_controller.players_data
+
+    @property
+    def _players_with_stats(self):
+        return self._player_controller.players_full_data
 
     def _init_event_handlers(self):
         event_handlers = {
@@ -674,7 +698,11 @@ class SingleGameController(BaseGame):
 
     @property
     def results(self) -> list[dict]:
-        return self._players.values()
+        players = self._players_with_stats
+        max_score = max([p['score'] for p in players], default=None)
+        for p in players:
+            p.update({'is_winner': p['score'] == max_score})
+        return players
 
     def _post_start(self):
         offset = timezone.timedelta(seconds=self.GAME_DURATION_SEC)

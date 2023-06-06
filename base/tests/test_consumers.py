@@ -72,12 +72,9 @@ class SingleGameConsumerTestCase(TestCase):
         """
         If username is in query parameters, create Player with this name
         """
-        print('test_username_query_param')
         username = 'test_user_1'
         uuid = self.session_record.session_id
-        print(uuid)
         path = f'ws/play/single/{uuid}/?username={username}'
-        print(path)
         communicator = self.get_communicator(path)
         is_connected, subprotocol = await communicator.connect(timeout=1)
         player = await self.get_player(displayed_name=username)
@@ -85,76 +82,14 @@ class SingleGameConsumerTestCase(TestCase):
 
         self.assertTrue(is_connected)
         self.assertEqual(player.displayed_name, username)
-        print('OK')
-
-    async def test_username_changes_if_already_occupied_in_session(self):
-        """
-        If player with username same as the one provided is already present
-        in the session, given username gets mangled.
-        """
-        print('test_username_changes_if_already_occupied_in_session')
-        username = 'test_user_1'
-        uuid = self.session_record.session_id
-        print(uuid)
-        path = f'ws/play/single/{uuid}/?username={username}'
-        print(path)
-        communicator = self.get_communicator(path)
-        await communicator.connect(timeout=1)
-
-        print('CONNECTING')
-        is_connected, subprotocol = await communicator.connect(timeout=1)
-        print('OK')
-        print('RECEIVING')
-        response = await communicator.receive_json_from(timeout=1)
-        print('OK')
-        player_obj = response['data']['player']
-        new_username = player_obj['displayed_name']
-        print('GETTING PLAYER')
-        player = await self.get_player(id=player_obj['id'])
-        print('OK')
-        print('DISCONNECTING')
-        await communicator.disconnect(timeout=1)
-        print('OK')
-
-        self.assertTrue(is_connected)
-        self.assertNotEqual(username, new_username)
-        self.assertEqual(player.displayed_name, new_username)
-        print('OK')
-
-    async def test_username_remains_unchanged_if_duplicate_is_only_in_database(self):
-        """
-        If player with username same as the one provided is present in database
-        but is not in the session, given username remains unchanged.
-        """
-        print('test_username_remains_unchanged_if_duplicate_is_only_in_database')
-        username = 'test_user_1'
-        uuid = self.session_record.session_id
-        path = f'ws/play/single/{uuid}/?username={username}'
-        communicator = self.get_communicator(path)
-
-        is_connected, subprotocol = await communicator.connect(timeout=1)
-        response = await communicator.receive_json_from(timeout=1)
-        player_obj = response['data']['player']
-        new_username = player_obj['displayed_name']
-        player = await self.get_player(id=player_obj['id'])
-        username_count = await self.count_players(displayed_name=username)
-        await communicator.disconnect(timeout=1)
-
-        self.assertTrue(is_connected)
-        self.assertEqual(username, new_username)
-        self.assertEqual(player.displayed_name, new_username)
-        self.assertEqual(username_count, 2)
-        print('OK')
 
     async def test_no_username_or_jwt_returns_error(self):
         """
         If player with username same as the one provided is present in database
         but is not in the session, given username remains unchanged.
         """
-        print('test_no_username_or_jwt_returns_error')
         uuid = self.session_record.session_id
         path = f'ws/play/single/{uuid}/'
-        print(path)
         communicator = self.get_communicator(path)
 
         is_connected, subprotocol = await communicator.connect(timeout=1)
@@ -167,5 +102,30 @@ class SingleGameConsumerTestCase(TestCase):
             'either `username` or `jwt` query params should be provided',
         )
         await communicator.disconnect(timeout=1)
-        print('OK')
         # communicator.receive_output()
+
+    # Things to test:
+    #   * Consumer handles query params correctly
+    #       + username
+    #       - jwt
+    #       - password
+    #   * Consumer calls .player_event with player_join message on join
+    #   * Consumer is added to channel layer for his session on successful join
+    #   * If no session controller was instantiated for this session_id,
+    #       - Consumer becomes host
+    #       - Consumer instantiates session controller with that session_id
+    #       - Race conditions between two consumers are excluded
+    #   * Consumer calls .player_event with player_leave message on leave
+    #   * Consumer is removed from channel layer after leave
+    #   * Consumer calls .player_event with input wrapped in Event
+    #       - Consumer sends individually events returned with TARGET_PLAYER
+    #       - Consumer broadcasts events returned with TARGET_ALL
+    #   * When host, consumer is responsible for delivering ticks to controller
+    #       - Consumer is added to HOSTS channel layer
+    #       - On each tick consumer calls .player_event with TRIGGER_TICK event
+    #   * If host Consumer leaves, it is responsible for selecting new host
+    #       AFTER LEAVE MESSAGE:
+    #       - Players can be selected from controller.players
+    #       - If no players available, deinstantiate session controller
+    #   * When last player that leaves is not host, he deinstantiates session
+    #       (theoretically impossible but for redundancy)

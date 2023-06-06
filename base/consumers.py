@@ -69,11 +69,7 @@ class BaseGameConsumer(JsonWebsocketConsumer):
 
     def _init_player(self) -> Player | None:
         username, jwt = self.get_query_username(), self.get_query_jwt()
-
         if username:
-            username = self.get_unique_username(username)
-            self.usernames.add(username)
-
             player = Player.objects.create(displayed_name=username)
             return player
 

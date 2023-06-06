@@ -1,6 +1,6 @@
 asyncapi: '2.6.0'
 info:
-  title: Наше родное Ё
+  title: Yo the game
   version: '0.2'
   contact:
     name: JarJar
@@ -177,14 +177,15 @@ components:
         - is_ready
 
     game_results:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/player_schema'
-        - properties:
-            is_winner:
-              type: boolean
-          required:
-            - is_winner
+      type: array
+      items:
+        allOf:
+          - $ref: '#/components/schemas/player_schema'
+          - properties:
+              is_winner:
+                type: boolean
+            required:
+              - is_winner
 
     player_related_event:
       type: object

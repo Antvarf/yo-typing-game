@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 import secrets
 from abc import ABC, abstractmethod
@@ -14,6 +16,26 @@ from base.models import (
     GameModes,
     Player,
 )
+
+
+class ControllerStorage:
+    _sessions = dict()
+
+    def get_game_controller(self, controller_cls, session_id: str):
+        if session_id not in self._sessions:
+            self._sessions[session_id] = {
+                'use_count': 0,
+                'controller': controller_cls(session_id),
+            }
+        self._sessions[session_id]['use_count'] += 1
+        controller = self._sessions[session_id]['controller']
+        return controller
+
+    def remove_game_controller(self, session_id: str):
+        if session_id in self._sessions:
+            self._sessions[session_id]['use_count'] -= 1
+            if self._sessions[session_id]['use_count'] <= 0:
+                self._sessions.pop(session_id)
 
 
 @dataclass
@@ -366,7 +388,7 @@ class PlayerPlainController(BasePlayerController):
             self._update_repr_from_object(player)
 
 
-class BaseGame(ABC):
+class BaseGameController(ABC):
     STATE_PREPARING = 'preparing'
     STATE_PLAYING = 'playing'
     STATE_VOTING = 'voting'
@@ -379,7 +401,7 @@ class BaseGame(ABC):
 
     def __init__(self, session_id=None):
         self._session = GameSession.objects.get(session_id=session_id)
-        if self._session.is_finished:
+        if self._session.started_at or self._session.is_finished:
             raise GameOverError
 
         self._state = self.STATE_PREPARING
@@ -693,7 +715,7 @@ class BaseGame(ABC):
         return event
 
 
-class SingleGameController(BaseGame):
+class SingleGameController(BaseGameController):
     GAME_DURATION_SEC = 60
 
     @property

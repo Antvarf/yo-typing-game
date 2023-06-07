@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 import random
 import asyncio
@@ -12,7 +14,7 @@ from django.contrib.auth.hashers import check_password
 from channels.consumer import SyncConsumer
 from channels.generic.websocket import AsyncJsonWebsocketConsumer, JsonWebsocketConsumer
 
-from .game_logic import Event, PlayerMessage, SingleGameController
+from .game_logic import Event, PlayerMessage, SingleGameController, ControllerStorage, GameOverError
 from .models import (
     Player,
     GameSession,
@@ -41,37 +43,69 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         self.controller = None
         self.player = None
         self.session_id = None
+        self._storage = ControllerStorage()
         self.usernames = set()
 
     def connect(self):
         events = []
-        self.accept()
-        session_id = self.scope["url_route"]["kwargs"]["session_id"]
-        self.session_id = session_id
-        self.controller = self.get_controller_from_session_id(session_id)
+        errors = []
+        self.session_id = self.scope["url_route"]["kwargs"]["session_id"]
+        self.controller = self._init_controller()
+        if self.controller is None:
+            error_message = self._get_error_event(
+                'This session can\'t be joined',
+            )
+            errors.append(error_message)
         self.player = self._init_player()
         if self.player is None:
-            error_message = Event(
-                type=Event.SERVER_ERROR,
-                data='either `username` or `jwt` '
-                     'query params should be provided'
+            error_message = self._get_error_event(
+                'either `username` or `jwt` '
+                'query params should be provided'
             )
-            events.append(error_message)
+            errors.append(error_message)
         else:
-            player_joined_message = Event(
+            player_joined_event = Event(
                 type=Event.PLAYER_JOINED,
                 data=PlayerMessage(
                     player=self.player,
                 )
             )
-            events.extend(self.controller.player_event(player_joined_message))
-        self.send_events(events)
+            events.extend(self.controller.player_event(player_joined_event))
+        self.accept()
+        if errors:
+            self.send_events(errors)
+            self.close(418)
+        else:
+            async_to_sync(self.channel_layer.group_add)(
+                self.session_id,
+                self.channel_name,
+            )
+            self.send_events(events)
 
     def _init_player(self) -> Player | None:
         username, jwt = self.get_query_username(), self.get_query_jwt()
         if username:
             player = Player.objects.create(displayed_name=username)
             return player
+
+    def _init_controller(self):
+        try:
+            controller = self._storage.get_game_controller(
+                controller_cls=self.controller_cls,
+                session_id=self.session_id,
+            )
+        except (GameOverError, GameSession.DoesNotExist):
+            pass
+        else:
+            return controller
+
+    def _get_error_event(self, message: str) -> Event:
+        error_message = Event(
+            type=Event.SERVER_ERROR,
+            target=Event.TARGET_PLAYER,
+            data=message,
+        )
+        return error_message
 
     def get_query_username(self):
         params = parse_qs(self.scope["query_string"].decode())
@@ -82,15 +116,32 @@ class BaseGameConsumer(JsonWebsocketConsumer):
 
     def send_events(self, events: list[Event]):
         for event in events:
-            self.send_json(event.to_dict())
+            if event.target is event.TARGET_ALL:
+                async_to_sync(self.channel_layer.group_send)(
+                    self.session_id,
+                    {
+                        'type': 'session.server.event',
+                        'data': event.to_dict(),
+                    },
+                )
+            elif event.target is event.TARGET_PLAYER:
+                self.send_json(event.to_dict())
 
-    def get_controller_from_session_id(self, session_id: str):
-        if session_id not in SESSIONS:
-            SESSIONS[session_id] = self.controller_cls(session_id)
-        return SESSIONS[session_id]
+    def session_server_event(self, event):
+        self.send_json(event['data'])
 
     def disconnect(self, exit_code):
-        SESSIONS.pop(self.session_id, None)
+        player_left_event = Event(
+            type=Event.PLAYER_LEFT,
+            data=PlayerMessage(
+                player=self.player,
+            )
+        )
+        if self.player is not None:
+            events = self.controller.player_event(player_left_event)
+            self.send_events(events)
+        if self.controller is not None:
+            self._storage.remove_game_controller(self.session_id)
 
     def can_connect(self):
         if not hasattr(self, "session"):
@@ -346,7 +397,7 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         await self.channel_layer.group_send(
             self.session_id,
             {
-                "type": "session.players.update", 
+                "type": "session.players.update",
                 "action": "player_joined",
                 "username": self.username,
             },
@@ -634,7 +685,7 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         max_score = max(i["score"] for i in self.session["players"].values())
         return [i for i in self.session["players"].values() \
                 if i["score"] == max_score]
-            
+
     def generate_words(self):
         YO_WORDS_COUNT = 8
         WORDS_COUNT = YO_WORDS_COUNT * 8

@@ -1,3 +1,5 @@
+import urllib.parse
+
 from channels.db import database_sync_to_async
 from channels.routing import URLRouter
 from django.test import TestCase
@@ -40,19 +42,16 @@ class SingleGameConsumerTestCase(TestCase):
     """
     This class contains tests specific to single game mode
     (+ all common tests, for now)
+
+    FIXME: find a better class to inherit from because tests get stuck :^)
     """
     consumer_cls = SingleGameConsumer
 
     def setUp(self):
-        print('Heyo')
         self.session_record = GameSession.objects.create()
+        self.other_session_record = GameSession.objects.create()
         self.get_player = database_sync_to_async(Player.objects.get)
         self.application = self._wrapApplication(self.consumer_cls.as_asgi())
-
-    @staticmethod
-    @database_sync_to_async
-    def count_players(*args, **kwargs):
-        return Player.objects.filter(*args, **kwargs).count()
 
     @staticmethod
     def _wrapApplication(app):
@@ -61,7 +60,12 @@ class SingleGameConsumerTestCase(TestCase):
         ])
         return wrapped
 
-    def get_communicator(self, path: str):
+    def get_communicator(self, session_id: str = None, **kwargs):
+        params = urllib.parse.urlencode(kwargs)
+        if session_id is None:
+            session_id = self.session_record.session_id
+        path = f'ws/play/single/{session_id}/?{params}'
+
         communicator = WebsocketCommunicator(
             self.application,
             path,
@@ -73,27 +77,24 @@ class SingleGameConsumerTestCase(TestCase):
         If username is in query parameters, create Player with this name
         """
         username = 'test_user_1'
-        uuid = self.session_record.session_id
-        path = f'ws/play/single/{uuid}/?username={username}'
-        communicator = self.get_communicator(path)
-        is_connected, subprotocol = await communicator.connect(timeout=1)
+        communicator = self.get_communicator(username=username)
+        is_connected, subprotocol = await communicator.connect()
         player = await self.get_player(displayed_name=username)
-        await communicator.disconnect(timeout=1)
+        await communicator.disconnect()
 
         self.assertTrue(is_connected)
         self.assertEqual(player.displayed_name, username)
+        print('I slayed 1')
 
     async def test_no_username_or_jwt_returns_error(self):
         """
         If player with username same as the one provided is present in database
         but is not in the session, given username remains unchanged.
         """
-        uuid = self.session_record.session_id
-        path = f'ws/play/single/{uuid}/'
-        communicator = self.get_communicator(path)
+        communicator = self.get_communicator()
 
-        is_connected, subprotocol = await communicator.connect(timeout=1)
-        response = await communicator.receive_json_from(timeout=3)
+        is_connected, subprotocol = await communicator.connect()
+        response = await communicator.receive_json_from()
 
         self.assertTrue(is_connected)
         self.assertEqual(response['type'], Event.SERVER_ERROR)
@@ -101,31 +102,45 @@ class SingleGameConsumerTestCase(TestCase):
             response['data'],
             'either `username` or `jwt` query params should be provided',
         )
-        await communicator.disconnect(timeout=1)
+        print('I slayed 2')
+        # TODO: test we got disconnected
         # communicator.receive_output()
 
-    # Things to test:
-    #   * Consumer handles query params correctly
-    #       + username
-    #       - jwt
-    #       - password
-    #   * Consumer calls .player_event with player_join message on join
-    #   * Consumer is added to channel layer for his session on successful join
-    #   * If no session controller was instantiated for this session_id,
-    #       - Consumer becomes host
-    #       - Consumer instantiates session controller with that session_id
-    #       - Race conditions between two consumers are excluded
-    #   * Consumer calls .player_event with player_leave message on leave
-    #   * Consumer is removed from channel layer after leave
-    #   * Consumer calls .player_event with input wrapped in Event
-    #       - Consumer sends individually events returned with TARGET_PLAYER
-    #       - Consumer broadcasts events returned with TARGET_ALL
-    #   * When host, consumer is responsible for delivering ticks to controller
-    #       - Consumer is added to HOSTS channel layer
-    #       - On each tick consumer calls .player_event with TRIGGER_TICK event
-    #   * If host Consumer leaves, it is responsible for selecting new host
-    #       AFTER LEAVE MESSAGE:
-    #       - Players can be selected from controller.players
-    #       - If no players available, deinstantiate session controller
-    #   * When last player that leaves is not host, he deinstantiates session
-    #       (theoretically impossible but for redundancy)
+    async def test_channel_layer_setup(self):
+        """
+        Tests that:
+            - Individual messages are received only by consumer client
+            - Broadcast messages are received by every other client in session
+            - Broadcast messages are not received by clients outside of session
+
+        + That for events with TARGET_PLAYER payload is sent individually
+        + That for events with TARGET_ALL payload is broadcasted to everyone
+        ---
+        FIXME: should we mock the send_events() func and isolate its tests?
+        """
+        username1 = 'test_user_1'
+        username2 = 'test_user_2'
+        communicator1 = self.get_communicator(username=username1)
+        communicator2 = self.get_communicator(username=username2)
+        foreign_communicator = self.get_communicator(
+            session_id=self.session_record.session_id,
+            username=username1
+        )
+
+        await communicator1.connect()
+        for i in range(2):
+            await communicator1.receive_json_from()
+        await communicator2.connect()
+        update_message = await communicator1.receive_json_from()
+
+        self.assertEqual(update_message['type'], Event.SERVER_PLAYERS_UPDATE)
+        self.assertTrue(await communicator1.receive_nothing())
+
+        await foreign_communicator.connect()
+        self.assertTrue(await communicator1.receive_nothing())
+        self.assertTrue(await communicator1.receive_nothing())
+
+        await communicator1.disconnect()
+        await communicator2.disconnect()
+        await foreign_communicator.disconnect()
+        print('I slayed 3')

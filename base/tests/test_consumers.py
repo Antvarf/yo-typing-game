@@ -50,15 +50,10 @@ class SingleGameConsumerTestCase(TestCase):
     def setUp(self):
         self.session_record = GameSession.objects.create()
         self.other_session_record = GameSession.objects.create()
-        self.get_player = database_sync_to_async(Player.objects.get)
-        self.application = self._wrapApplication(self.consumer_cls.as_asgi())
-
-    @staticmethod
-    def _wrapApplication(app):
-        wrapped = URLRouter([
-            path('ws/play/single/<str:session_id>/', app),
+        self.application = URLRouter([
+            path('ws/play/single/<str:session_id>/',
+                 self.consumer_cls.as_asgi()),
         ])
-        return wrapped
 
     def get_communicator(self, session_id: str = None, **kwargs):
         params = urllib.parse.urlencode(kwargs)
@@ -79,12 +74,13 @@ class SingleGameConsumerTestCase(TestCase):
         username = 'test_user_1'
         communicator = self.get_communicator(username=username)
         is_connected, subprotocol = await communicator.connect()
-        player = await self.get_player(displayed_name=username)
+        player = await database_sync_to_async(Player.objects.get)(
+            displayed_name=username,
+        )
         await communicator.disconnect()
 
         self.assertTrue(is_connected)
         self.assertEqual(player.displayed_name, username)
-        print('I slayed 1')
 
     async def test_no_username_or_jwt_returns_error(self):
         """
@@ -102,7 +98,6 @@ class SingleGameConsumerTestCase(TestCase):
             response['data'],
             'either `username` or `jwt` query params should be provided',
         )
-        print('I slayed 2')
         # TODO: test we got disconnected
         # communicator.receive_output()
 
@@ -123,7 +118,7 @@ class SingleGameConsumerTestCase(TestCase):
         communicator1 = self.get_communicator(username=username1)
         communicator2 = self.get_communicator(username=username2)
         foreign_communicator = self.get_communicator(
-            session_id=self.session_record.session_id,
+            session_id=self.other_session_record.session_id,
             username=username1
         )
 
@@ -138,9 +133,7 @@ class SingleGameConsumerTestCase(TestCase):
 
         await foreign_communicator.connect()
         self.assertTrue(await communicator1.receive_nothing())
-        self.assertTrue(await communicator1.receive_nothing())
 
         await communicator1.disconnect()
         await communicator2.disconnect()
         await foreign_communicator.disconnect()
-        print('I slayed 3')

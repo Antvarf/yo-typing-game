@@ -92,27 +92,31 @@ class Event:
         return result
 
 
-class PlayerJoinRefusedError(Exception):
+class ControllerError(Exception):
     pass
 
 
-class EventTypeNotDefinedError(Exception):
+class PlayerJoinRefusedError(ControllerError):
     pass
 
 
-class GameOverError(Exception):
+class EventTypeNotDefinedError(ControllerError):
     pass
 
 
-class InvalidMessageError(Exception):
+class GameOverError(ControllerError):
     pass
 
 
-class ControllerExistsException(Exception):
+class InvalidMessageError(ControllerError):
     pass
 
 
-class InvalidGameStateException(Exception):
+class ControllerExistsError(ControllerError):
+    pass
+
+
+class InvalidGameStateError(ControllerError):
     pass
 
 

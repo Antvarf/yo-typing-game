@@ -7,8 +7,8 @@ from django.test import TestCase
 from base.game_logic import (
     Event,
     PlayerMessage,
-    InvalidGameStateException,
-    ControllerExistsException,
+    InvalidGameStateError,
+    ControllerExistsError,
     SingleGameController,
     PlayerJoinRefusedError,
     ControllerStorage,
@@ -78,7 +78,7 @@ class SingleGameControllerTestCase(TestCase):
 
     # def test_no_multiple_controllers_for_session(self):
     #     """Only a single controller instance can exist per session"""
-    #     with self.assertRaises(ControllerExistsException):
+    #     with self.assertRaises(ControllerExistsError):
     #         controller = self.controller_cls(
     #             session_id=self.session_record.session_id,
     #         )
@@ -93,11 +93,11 @@ class SingleGameControllerTestCase(TestCase):
     # def test_session_cannot_be_started_or_finished(self):
     #     """Controller can only be assigned to session at preparation stage"""
     #     self.session_record.start_game()
-    #     with self.assertRaises(InvalidGameStateException):
+    #     with self.assertRaises(InvalidGameStateError):
     #         self.controller_cls(session_id=self.session_record.session_id)
     #
     #     self.session_record.save_results(list())
-    #     with self.assertRaises(InvalidGameStateException):
+    #     with self.assertRaises(InvalidGameStateError):
     #         self.controller_cls(session_id=self.session_record.session_id)
 
     def test_player_joined_event(self):

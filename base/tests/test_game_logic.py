@@ -562,7 +562,47 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(server_events_1[1].type, Event.SERVER_NEW_GAME)
         self.assertEqual(len(server_events_2), 0)
 
-    def test_tick_before_start_game_yields_nothing(self):
+    def test_tick_without_host_yields_nothing(self):
+        """If host was not set on session, ticks don't trigger"""
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(player=self.player_record),
+        )
+        self.controller.player_event(join_event)
+        self.controller._start_game()
+
+        players_update_event = self.controller.player_event(tick_event)
+
+        self.assertEqual(len(players_update_event), 0)
+
+    def test_tick_from_wrong_player_yields_nothing(self):
+        """If tick is triggered by non-host player, it is ignored"""
+        join_event_1 = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        join_event_2 = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        wrong_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        self.controller.player_event(join_event_1)
+        self.controller.player_event(join_event_2)
+        self.controller._start_game()
+
+        self.controller.host_player = self.player_record
+        players_update_event = self.controller.player_event(wrong_tick_event)
+
+        self.assertEqual(len(players_update_event), 0)
+
+    def test_tick_before_game_start_yields_nothing(self):
         join_event = Event(
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(player=self.player_record)
@@ -573,12 +613,14 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
-            data=PlayerMessage(),
+            data=PlayerMessage(player=self.player_record),
         )
         self.controller.START_GAME_DELAY = 1
         self.controller.player_event(join_event)
         players_update_event, game_begins_event =\
             self.controller.player_event(ready_event)
+
+        self.controller.host_player = self.player_record
         tick_response_events = self.controller.player_event(tick_event)
 
         self.assertEqual(players_update_event.type,
@@ -589,7 +631,7 @@ class SingleGameControllerTestCase(TestCase):
                          self.controller.START_GAME_DELAY)
         self.assertEqual(len(tick_response_events), 0)
 
-    def test_tick_after_start_game_returns_start_game(self):
+    def test_tick_after_game_start_returns_start_game(self):
         join_event = Event(
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(player=self.player_record)
@@ -600,13 +642,15 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
-            data=PlayerMessage(),
+            data=PlayerMessage(player=self.player_record),
         )
         self.controller.START_GAME_DELAY = 0.2
         self.controller.player_event(join_event)
         players_update_event, game_begins_event = \
             self.controller.player_event(ready_event)
         time.sleep(self.controller.START_GAME_DELAY)
+
+        self.controller.host_player = self.player_record
         tick_response_events = self.controller.player_event(tick_event)
 
         self.assertEqual(players_update_event.type,
@@ -625,11 +669,12 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
-            data=PlayerMessage(),
+            data=PlayerMessage(player=self.player_record),
         )
         self.controller.player_event(join_event)
         self.controller._start_game()
 
+        self.controller.host_player = self.player_record
         players_update_event_1, = self.controller.player_event(tick_event)
         players_data_1 = copy.deepcopy(players_update_event_1.data)
 
@@ -651,21 +696,16 @@ class SingleGameControllerTestCase(TestCase):
         )
         tick_event = Event(
             type=Event.TRIGGER_TICK,
-            data=PlayerMessage(),
+            data=PlayerMessage(player=self.player_record),
         )
         self.controller.player_event(join_event)
         self.controller._start_game()
         self.controller._game_over()
 
+        self.controller.host_player = self.player_record
         server_events = self.controller.player_event(tick_event)
 
         self.assertEqual(len(server_events), 0)
-
-    # def test_start_game(self):
-    #     pass
-
-    # def test_game_over(self):
-    #     pass
 
     def test_player_leaving_can_start_game(self):
         """
@@ -1034,6 +1074,32 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
         self.assertEqual(old_username, displayed_name)
         self.assertEqual(old_username, player_object.displayed_name)
+
+    def test_host_player_is_none_if_not_set(self):
+        """
+        If host was not set on session, it defaults to None
+        """
+        self.assertIsNone(self.controller.host_player)
+
+    def test_set_host_player_requires_player_present_in_session(self):
+        """
+        Test that host player setter expects player record as argument and
+        checks it for presence in session
+        """
+        with self.assertRaisesMessage(TypeError,
+                                      'host should be of type `Player`'):
+            self.controller.host_player = 1
+
+        error_message = f'player {self.player_record} is not in session'
+        with self.assertRaisesMessage(ValueError, error_message):
+            self.controller.host_player = self.player_record
+
+        join_event = Event(type=Event.PLAYER_JOINED,
+                           data=PlayerMessage(player=self.player_record))
+        self.controller.player_event(join_event)
+        self.controller.host_player = self.player_record
+
+        self.assertEqual(self.controller.host_player, self.player_record)
 
     # TODO: add test for game over condition (should be per mode)
 

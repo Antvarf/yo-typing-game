@@ -415,12 +415,26 @@ class BaseGameController(ABC):
         self._modes_available = GameModes.labels
         self._game_begins_at = None
 
+        self._host_player = None
+
     def player_event(self, event: Event) -> list[Event]:
         if not event.is_valid():
             raise InvalidMessageError
         handler = self._get_event_handler(event.type)
         events = handler(**event.data.to_dict())
         return events
+
+    @property
+    def host_player(self) -> Player:
+        return self._host_player
+
+    @host_player.setter
+    def host_player(self, new_host: Player):
+        if type(new_host) is not Player:
+            raise TypeError('host should be of type `Player`')
+        if not self._player_exists(new_host):
+            raise ValueError(f'player {new_host} is not in session')
+        self._host_player = new_host
 
     @property
     def _players(self):
@@ -512,9 +526,12 @@ class BaseGameController(ABC):
             events.append(self._get_players_update_event())
         return events
 
-    def _handle_tick(self, **kwargs) -> list[Event]:
+    def _handle_tick(self, player, **kwargs) -> list[Event]:
         events = []
-        if self._state is self.STATE_PREPARING:
+        if self._host_player is None or player.pk != self._host_player.pk:
+            pass
+
+        elif self._state is self.STATE_PREPARING:
             if self._game_begins_at is not None:
                 if timezone.now() >= self._game_begins_at:
                     events.append(self._start_game())

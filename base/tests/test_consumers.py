@@ -137,32 +137,46 @@ class SingleGameConsumerTestCase(TestCase):
         await communicator1.disconnect()
         await communicator2.disconnect()
         await foreign_communicator.disconnect()
-    #
-    # async def test_receive_json(self):
-    #     """
-    #     All events except filtered are passed as Event to .player_event()
-    #     """
-    #     username1 = 'test_user_1'
-    #     username2 = 'test_user_2'
-    #     communicator1 = self.get_communicator(username=username1)
-    #     communicator2 = self.get_communicator(username=username2)
-    #     foreign_communicator = self.get_communicator(
-    #         session_id=self.other_session_record.session_id,
-    #         username=username1
-    #     )
-    #
-    #     await communicator1.connect()
-    #     for i in range(2):
-    #         await communicator1.receive_json_from()
-    #     await communicator2.connect()
-    #     update_message = await communicator1.receive_json_from()
-    #
-    #     self.assertEqual(update_message['type'], Event.SERVER_PLAYERS_UPDATE)
-    #     self.assertTrue(await communicator1.receive_nothing())
-    #
-    #     await foreign_communicator.connect()
-    #     self.assertTrue(await communicator1.receive_nothing())
-    #
-    #     await communicator1.disconnect()
-    #     await communicator2.disconnect()
-    #     await foreign_communicator.disconnect()
+
+    async def test_receive_json(self):
+        """
+        All events except filtered are passed as Event to .player_event()
+        --
+        TODO: i will mock test it someday
+        """
+        username1 = 'test_user_1'
+        communicator1 = self.get_communicator(username=username1)
+
+        await communicator1.connect()
+        for i in range(2):
+            await communicator1.receive_json_from()
+        await communicator1.send_json_to({
+            'type': Event.PLAYER_READY_STATE,
+            'data': True,
+        })
+        update_message = await communicator1.receive_json_from()
+
+        self.assertEqual(update_message['type'], Event.SERVER_PLAYERS_UPDATE)
+
+        await communicator1.disconnect()
+
+    async def test_receive_reserved_message_type(self):
+        """Messages with reserved type should be filtered out"""
+        username1 = 'test_user_1'
+        communicator1 = self.get_communicator(username=username1)
+
+        await communicator1.connect()
+        for i in range(2):
+            await communicator1.receive_json_from()
+        await communicator1.send_json_to({
+            'type': Event.PLAYER_JOINED,
+            'data': None,
+        })
+        update_message = await communicator1.receive_json_from()
+
+        self.assertEqual(update_message['type'], Event.SERVER_ERROR)
+        self.assertEqual(update_message['data'],
+                         'message type is invalid or not present')
+        self.assertTrue(await communicator1.receive_nothing())
+
+        await communicator1.disconnect()

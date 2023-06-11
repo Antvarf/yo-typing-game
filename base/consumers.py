@@ -9,6 +9,7 @@ from urllib.parse import parse_qs
 
 from asgiref.sync import async_to_sync
 from channels.db import database_sync_to_async
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.auth.hashers import check_password
 from channels.consumer import SyncConsumer
@@ -65,6 +66,14 @@ class BaseGameConsumer(JsonWebsocketConsumer):
             self.send_error(str(e))
             self.close(418)
 
+    def receive_json(self, content, **kwargs):
+        try:
+            self._perform_input_checks(content)
+        except PlayerInputError as e:
+            self.send_error(str(e))
+        else:
+            self._controller_notify(content)
+
     def disconnect(self, exit_code):
         self.leave_session()
 
@@ -73,6 +82,7 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         self.controller = self._init_controller()
         self.player = self._init_player()
         self._add_self_to_session()
+        self._add_self_to_hosts()
 
     def leave_session(self):
         self._remove_self_from_session()
@@ -105,16 +115,18 @@ class BaseGameConsumer(JsonWebsocketConsumer):
             elif event.target is event.TARGET_PLAYER:
                 self.send_json(event.to_dict())
 
-    def receive_json(self, content, **kwargs):
-        try:
-            self._perform_input_checks(content)
-        except PlayerInputError as e:
-            self.send_error(str(e))
-        else:
-            self._controller_notify(content)
-
     def session_server_event(self, event):
-        self.send_json(event['data'])
+        if event['type'] == Event.SERVER_NEW_HOST:
+            if event['data'] == self.player.pk:
+                self._add_self_to_hosts()
+        else:
+            self.send_json(event['data'])
+
+    def session_tick(self, event):
+        tick_event = Event(type=Event.TRIGGER_TICK,
+                           data=PlayerMessage(player=self.player))
+        events = self.controller.player_event(tick_event)
+        self.notify(events)
 
     def _perform_input_checks(self, content):
         if type(content) is not dict:
@@ -130,6 +142,8 @@ class BaseGameConsumer(JsonWebsocketConsumer):
 
     def _add_self_to_session(self):
         events = self._controller_join()
+        if self.controller.host_id is None:
+            self._add_self_to_hosts()
         async_to_sync(self.channel_layer.group_add)(
             self.session_id,
             self.channel_name,
@@ -137,10 +151,26 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         self.notify(events)
 
     def _remove_self_from_session(self):
+        if self.controller.host_id == self.player.pk:
+            self._remove_self_from_hosts()
         events = self._controller_leave()
         self.notify(events)
         async_to_sync(self.channel_layer.group_discard)(
             self.session_id,
+            self.channel_name,
+        )
+
+    def _add_self_to_hosts(self):
+        self.controller.set_host(self.player)
+        async_to_sync(self.channel_layer.group_add)(
+            settings.HOSTS_LAYER_NAME,
+            self.channel_name,
+        )
+
+    def _remove_self_from_hosts(self):
+        # controller selects the new host on its own
+        async_to_sync(self.channel_layer.group_discard)(
+            settings.HOSTS_LAYER_NAME,
             self.channel_name,
         )
 

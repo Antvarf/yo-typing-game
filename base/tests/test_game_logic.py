@@ -597,7 +597,7 @@ class SingleGameControllerTestCase(TestCase):
         self.controller.player_event(join_event_2)
         self.controller._start_game()
 
-        self.controller.host_player = self.player_record
+        self.controller.set_host(self.player_record)
         players_update_event = self.controller.player_event(wrong_tick_event)
 
         self.assertEqual(len(players_update_event), 0)
@@ -620,7 +620,7 @@ class SingleGameControllerTestCase(TestCase):
         players_update_event, game_begins_event =\
             self.controller.player_event(ready_event)
 
-        self.controller.host_player = self.player_record
+        self.controller.set_host(self.player_record)
         tick_response_events = self.controller.player_event(tick_event)
 
         self.assertEqual(players_update_event.type,
@@ -650,7 +650,7 @@ class SingleGameControllerTestCase(TestCase):
             self.controller.player_event(ready_event)
         time.sleep(self.controller.START_GAME_DELAY)
 
-        self.controller.host_player = self.player_record
+        self.controller.set_host(self.player_record)
         tick_response_events = self.controller.player_event(tick_event)
 
         self.assertEqual(players_update_event.type,
@@ -674,7 +674,7 @@ class SingleGameControllerTestCase(TestCase):
         self.controller.player_event(join_event)
         self.controller._start_game()
 
-        self.controller.host_player = self.player_record
+        self.controller.set_host(self.player_record)
         players_update_event_1, = self.controller.player_event(tick_event)
         players_data_1 = copy.deepcopy(players_update_event_1.data)
 
@@ -702,7 +702,7 @@ class SingleGameControllerTestCase(TestCase):
         self.controller._start_game()
         self.controller._game_over()
 
-        self.controller.host_player = self.player_record
+        self.controller.set_host(self.player_record)
         server_events = self.controller.player_event(tick_event)
 
         self.assertEqual(len(server_events), 0)
@@ -1075,33 +1075,65 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(old_username, displayed_name)
         self.assertEqual(old_username, player_object.displayed_name)
 
-    def test_host_player_is_none_if_not_set(self):
+    def test_host_id_is_none_if_not_set(self):
         """
         If host was not set on session, it defaults to None
         """
-        self.assertIsNone(self.controller.host_player)
+        self.assertIsNone(self.controller.host_id)
 
-    def test_set_host_player_requires_player_present_in_session(self):
+    def test_set_host_requires_player_present_in_session(self):
         """
         Test that host player setter expects player record as argument and
         checks it for presence in session
         """
-        with self.assertRaisesMessage(TypeError,
-                                      'host should be of type `Player`'):
-            self.controller.host_player = 1
+        with self.assertRaises(AttributeError):
+            self.controller.host_id = 1
 
         error_message = f'player {self.player_record} is not in session'
         with self.assertRaisesMessage(ValueError, error_message):
-            self.controller.host_player = self.player_record
+            self.controller.set_host(self.player_record)
 
         join_event = Event(type=Event.PLAYER_JOINED,
                            data=PlayerMessage(player=self.player_record))
         self.controller.player_event(join_event)
-        self.controller.host_player = self.player_record
+        self.controller.set_host(self.player_record)
 
-        self.assertEqual(self.controller.host_player, self.player_record)
+        self.assertEqual(self.controller.host_id, self.player_record.pk)
 
-    # TODO: add test for game over condition (should be per mode)
+    def test_host_leave_triggers_set_new_host(self):
+        join_event = Event(type=Event.PLAYER_JOINED,
+                           data=PlayerMessage(player=self.player_record))
+        leave_event = Event(type=Event.PLAYER_LEFT,
+                            data=PlayerMessage(player=self.player_record))
+        self.controller.player_event(join_event)
+        self.controller.set_host(self.player_record)
+
+        events = self.controller.player_event(leave_event)
+
+        self.assertEqual(events[0].type, Event.SERVER_NEW_HOST)
+        self.assertEqual(events[0].target, Event.TARGET_ALL)
+        self.assertEqual(events[0].data, None)
+
+    def test_controller_picks_new_host_if_available(self):
+        p1_join_event = Event(type=Event.PLAYER_JOINED,
+                              data=PlayerMessage(player=self.player_record))
+        p2_join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_leave_event = Event(type=Event.PLAYER_LEFT,
+                               data=PlayerMessage(player=self.player_record))
+        self.controller.player_event(p1_join_event)
+        self.controller.player_event(p2_join_event)
+        self.controller.set_host(self.player_record)
+
+        events = self.controller.player_event(p1_leave_event)
+
+        self.assertEqual(events[0].type, Event.SERVER_NEW_HOST)
+        self.assertEqual(events[0].target, Event.TARGET_ALL)
+        self.assertEqual(events[0].data, self.other_player_record.id)
+
+# TODO: add test for game over condition (should be per mode)
 
 
 class ControllerStorageTestCase(TestCase):

@@ -92,9 +92,6 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         params = parse_qs(self.scope["query_string"].decode())
         return params.get('username', (None,))[0]
 
-    def get_query_jwt(self):
-        return
-
     def get_query_password(self):
         params = parse_qs(self.scope["query_string"].decode())
         return params.get('password', (None,))[0]
@@ -180,14 +177,17 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         )
 
     def _init_player(self) -> Player:
-        username, jwt = self.get_query_username(), self.get_query_jwt()
-        if username is None and jwt is None:
-            raise PlayerJoinRefusedError(
-                'either `username` or `jwt` are required as query params'
-            )
-        if username:
+        user = self.scope['user']
+        if user is AnonymousUser:
+            username = self.get_query_username()
+            if username is None:
+                raise PlayerJoinRefusedError(
+                    'either `username` or `jwt` are required as query params'
+                )
             player = Player.objects.create(displayed_name=username)
-            return player
+        else:
+            player = user.player
+        return player
 
     def _init_controller(self):
         controller = self._storage.get_game_controller(

@@ -471,12 +471,12 @@ class BaseGameController(ABC):
 
     ### Event handlers start here ###
 
-    def _handle_player_join(self, player: Player) -> list[Event]:
+    def _handle_player_join(self, player: Player, payload={}) -> list[Event]:
         """
         Event handler for player joining the session.
         """
         events = []
-        if self._can_player_join(player):
+        if self._can_player_join(player, **payload):
             player_obj = self._add_player(player)
             events.append(self._get_initial_state_event(player_obj))
             events.append(self._get_players_update_event())
@@ -646,12 +646,15 @@ class BaseGameController(ABC):
         players_count = self._player_controller.player_count
         return players_count and players_voted >= players_count
 
-    def _can_player_join(self, player: Player) -> bool:
+    def _can_player_join(self, player: Player, password: str = None) -> bool:
         if 0 < self._session.players_max <= self._player_count:
             return False
         if self._state is not self.STATE_PREPARING:
             return False
         if self._player_exists(player):
+            return False
+        if self._session.password \
+                and not self._session.check_password(password):
             return False
         return True
 

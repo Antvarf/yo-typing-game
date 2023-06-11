@@ -13,7 +13,7 @@ from base.game_logic import (
     PlayerJoinRefusedError,
     ControllerStorage,
     BaseGameController,
-    GameOverError,
+    GameOverError, EndlessGameController, TugOfWarGameController,
 )
 from base.models import (
     GameSession,
@@ -1176,8 +1176,24 @@ class SingleGameControllerTestCase(TestCase):
 
         self.controller.player_event(join_event)
 
-
 # TODO: add test for game over condition (should be per mode)
+
+
+class EndlessGameControllerTestCase(SingleGameControllerTestCase):
+    controller_cls = EndlessGameController
+
+    def test_correct_word_increases_time_left(self):
+        pass
+
+    def test_incorrect_word_leaves_time_left_as_is(self):
+        pass
+
+    def test_time_left_cannot_exceed_threshold(self):
+        pass
+
+
+class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
+    controller_cls = TugOfWarGameController
 
 
 class ControllerStorageTestCase(TestCase):

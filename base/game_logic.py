@@ -57,7 +57,7 @@ class Event:
     PLAYER_READY_STATE = 'ready_state'
     PLAYER_WORD = 'word'
     PLAYER_MODE_VOTE = 'vote'
-    # PLAYER_SWITCH_TEAM = 'switch_team'
+    PLAYER_SWITCH_TEAM = 'switch_team'
 
     SERVER_INITIAL_STATE = 'initial_state'
     SERVER_PLAYERS_UPDATE = 'players_update'
@@ -210,13 +210,14 @@ class BasePlayerController(ABC):
         * maintaining players representation for display
         * updating player related fields on session record
     """
-    def __init__(self, session: GameSession):
+    def __init__(self, session: GameSession, settings=None):
         self._displayed_names = set()
         self._players_dict = {}
         self._players_repr = self._init_repr()
         self._ready_count = 0
         self._voted_count = 0
         self._last_tick = None
+        self.settings = settings
         self.session = session
 
     def add_player(self, player: LocalPlayer):
@@ -398,6 +399,96 @@ class PlayerPlainController(BasePlayerController):
             self._update_repr_from_object(player)
 
 
+class PlayerEndlessController(PlayerPlainController):
+    def _handle_word(self, player: LocalPlayer, word: str):
+        if player.get_next_word() == word:
+            player.time_left = max(player.time_left+len(word),
+                                   self.settings['game_duration'])
+            player.score += len(word)
+            player.correct_words += 1
+        else:
+            player.incorrect_words += 1
+        player.total_word_length += len(word)
+        player.speed = player.total_word_length / self.time_elapsed
+        return player
+
+
+class PlayerTugOfWarController(BasePlayerController):
+    TEAM_RED_NAME = 'red'
+    TEAM_BLUE_NAME = 'blue'
+    TICKET_POOL = 100
+
+    def _init_repr(self):
+        teams = {
+            self.TEAM_RED_NAME: {
+                'players': dict(),
+                'tickets': self.TICKET_POOL // 2,
+            },
+            self.TEAM_BLUE_NAME: {
+                'players': dict(),
+                'tickets': self.TICKET_POOL // 2,
+            },
+        }
+        self.team_red_repr = teams[self.TEAM_RED_NAME]
+        self.team_blue_repr = teams[self.TEAM_BLUE_NAME]
+        self.team_red_players = self.team_red_repr['players']
+        self.team_blue_players = self.team_blue_repr['players']
+        return teams
+
+    def _insert_into_repr(self, player: LocalPlayer):
+        if player.id in self.team_red_players \
+                or player.id in self.team_blue_players:
+            return
+        if len(self.team_red_players) <= len(self.team_blue_players):
+            self.team_red_players[player.id] = player.to_dict()
+            player.team = self.TEAM_RED_NAME
+        else:
+            self.team_blue_players[player.id] = player.to_dict()
+            player.team = self.TEAM_BLUE_NAME
+
+    def _remove_from_repr(self, player):
+        if player.team == self.TEAM_BLUE_NAME:
+            self.team_blue_players.pop(player.id, None)
+        elif player.team == self.TEAM_RED_NAME:
+            self.team_red_players.pop(player.id, None)
+
+    def _handle_word(self, player: LocalPlayer, word: str):
+        if player.team == self.TEAM_BLUE_NAME:
+            if player.id in self.team_blue_repr:
+                if player.get_next_word() == word:
+                    self.team_red_repr['tickets'] = max(
+                        self.team_red_repr['tickets'] + len(word),
+                        self.TICKET_POOL,
+                    )
+                    self.team_blue_repr['tickets'] = min(
+                        self.team_blue_repr['tickets'] - len(word),
+                        0,
+                    )
+        elif player.team == self.TEAM_RED_NAME:
+            if player.id in self.team_red_repr:
+                if player.get_next_word() == word:
+                    self.team_blue_repr['tickets'] = max(
+                        self.team_blue_repr['tickets'] + len(word),
+                        self.TICKET_POOL,
+                    )
+                    self.team_red_repr['tickets'] = min(
+                        self.team_red_repr['tickets'] - len(word),
+                        0,
+                    )
+        self._update_repr_from_object(player)
+
+    def _update_repr_from_object(self, player):
+        if player.team == self.TEAM_BLUE_NAME:
+            if player.id in self.team_blue_repr:
+                self.team_blue_repr[player.id].update(player.to_dict())
+        elif player.team == self.TEAM_RED_NAME:
+            if player.id in self.team_red_repr:
+                self.team_red_repr[player.id].update(player.to_dict())
+
+    def make_tick(self):
+        pass
+
+
 class BaseGameController(ABC):
     STATE_PREPARING = 'preparing'
     STATE_PLAYING = 'playing'
@@ -408,6 +499,7 @@ class BaseGameController(ABC):
     player_class = LocalPlayer
 
     START_GAME_DELAY = 0
+    GAME_DURATION_SEC = None
 
     def __init__(self, session_id=None):
         self._session = GameSession.objects.get(session_id=session_id)
@@ -415,7 +507,10 @@ class BaseGameController(ABC):
             raise GameOverError
 
         self._state = self.STATE_PREPARING
-        self._player_controller = self.player_controller_class(self._session)
+        self._player_controller = self.player_controller_class(
+            self._session,
+            settings={'game_duration': self.GAME_DURATION_SEC},
+        )
         self._event_handlers = self._init_event_handlers()
         self._word_provider = self.word_provider_class()
         self._modes_available = GameModes.labels
@@ -781,3 +876,35 @@ class SingleGameController(BaseGameController):
         if self._state is not self.STATE_PLAYING:
             return False
         return self._game_ends_at <= timezone.now()
+
+
+class EndlessGameController(SingleGameController):
+    GAME_DURATION_SEC = 30
+    player_controller_class = PlayerEndlessController
+
+
+class TugOfWarGameController(SingleGameController):
+    # add custom message handler
+    GAME_DURATION_SEC = 0
+    player_controller_class = PlayerTugOfWarController
+
+    def get_extending_event_handlers(self):
+        handlers = {
+            Event.PLAYER_SWITCH_TEAM: self._handle_switch_team,
+        }
+        return handlers
+
+    def _handle_switch_team(self, player, payload):
+        events = []
+        if self._state is self.STATE_PREPARING:
+            player_obj = self._get_player(player)
+            if player_obj['team'] != payload:
+                self._player_controller.switch_team(player_obj, payload)
+                events.append(self._get_players_update_event())
+        return events
+
+    def _is_game_over(self) -> bool:
+        for team in self._players.values():
+            if 100 <= team['tickets'] <= 0:
+                return True
+        return False

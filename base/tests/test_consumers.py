@@ -4,12 +4,15 @@ from channels.db import database_sync_to_async
 from channels.layers import get_channel_layer
 from channels.routing import URLRouter
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from channels.testing import WebsocketCommunicator
 from django.urls import path
 
+from E.auth import JWTAuthMiddleware
 from base.consumers import SingleGameConsumer, BaseGameConsumer
 from base.game_logic import Event
+from base.helpers import get_tokens_for_user
 from base.models import GameSession, Player
 
 
@@ -40,6 +43,9 @@ class BaseGameConsumerTestCase(TestCase):
     #     raise Exception
 
 
+User = get_user_model()
+
+
 class SingleGameConsumerTestCase(TestCase):
     """
     This class contains tests specific to single game mode
@@ -52,10 +58,12 @@ class SingleGameConsumerTestCase(TestCase):
     def setUp(self):
         self.session_record = GameSession.objects.create()
         self.other_session_record = GameSession.objects.create()
-        self.application = URLRouter([
-            path('ws/play/single/<str:session_id>/',
-                 self.consumer_cls.as_asgi()),
-        ])
+        self.application = JWTAuthMiddleware(
+            URLRouter([
+                path('ws/play/single/<str:session_id>/',
+                     self.consumer_cls.as_asgi()),
+            ]),
+        )
 
     def get_communicator(self, session_id: str = None, **kwargs):
         params = urllib.parse.urlencode(kwargs)
@@ -230,7 +238,6 @@ class SingleGameConsumerTestCase(TestCase):
         """If password not given when asked for.. well...."""
         username1 = 'test_user_1'
         communicator1 = self.get_communicator(username=username1)
-        channel_layer = get_channel_layer()
 
         self.session_record.is_private = True
         self.session_record.set_password('test_password')
@@ -248,7 +255,6 @@ class SingleGameConsumerTestCase(TestCase):
         username1 = 'test_user_1'
         communicator1 = self.get_communicator(username=username1,
                                               password='wrong_password')
-        channel_layer = get_channel_layer()
 
         self.session_record.is_private = True
         self.session_record.set_password('test_password')
@@ -266,7 +272,6 @@ class SingleGameConsumerTestCase(TestCase):
         username1 = 'test_user_1'
         communicator1 = self.get_communicator(username=username1,
                                               password='test_password')
-        channel_layer = get_channel_layer()
 
         self.session_record.is_private = True
         self.session_record.set_password('test_password')
@@ -276,5 +281,63 @@ class SingleGameConsumerTestCase(TestCase):
         message = await communicator1.receive_json_from()
 
         self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
+
+        await communicator1.disconnect()
+
+    async def test_authenticated_join(self):
+        user = await database_sync_to_async(User.objects.create_user)(
+            username='test_user_1',
+            password='something good',
+        )
+        jwt_pair = await database_sync_to_async(get_tokens_for_user)(user)
+
+        communicator1 = self.get_communicator(jwt=jwt_pair['access'])
+
+        await communicator1.connect()
+        message = await communicator1.receive_json_from()
+
+        self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
+        self.assertEqual(
+            message['data']['player']['displayed_name'],
+            user.username,
+        )
+
+        await communicator1.disconnect()
+
+    async def test_authenticated_join_overrides_username(self):
+        user = await database_sync_to_async(User.objects.create_user)(
+            username='test_user_1',
+            password='something good',
+        )
+        jwt_pair = await database_sync_to_async(get_tokens_for_user)(user)
+
+        communicator1 = self.get_communicator(jwt=jwt_pair['access'],
+                                              username='test_user_2')
+
+        await communicator1.connect()
+        message = await communicator1.receive_json_from()
+
+        self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
+        self.assertEqual(
+            message['data']['player']['displayed_name'],
+            user.username,
+        )
+
+        await communicator1.disconnect()
+
+    async def test_invalid_jwt_does_not_override_username(self):
+        invalid_token = 'oh boy this is not in jwt format at all'
+
+        communicator1 = self.get_communicator(jwt=invalid_token,
+                                              username='test_user_2')
+
+        await communicator1.connect()
+        message = await communicator1.receive_json_from()
+
+        self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
+        self.assertEqual(
+            message['data']['player']['displayed_name'],
+            'test_user_2'
+        )
 
         await communicator1.disconnect()

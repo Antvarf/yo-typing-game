@@ -62,7 +62,8 @@ class BaseGameConsumer(JsonWebsocketConsumer):
         try:
             self.accept()
             self.join_session()
-        except (ControllerError, GameSession.DoesNotExist) as e:
+        except (ControllerError,
+                PlayerInputError, GameSession.DoesNotExist) as e:
             self.send_error(str(e))
             self.close(418)
 
@@ -93,6 +94,10 @@ class BaseGameConsumer(JsonWebsocketConsumer):
 
     def get_query_jwt(self):
         return
+
+    def get_query_password(self):
+        params = parse_qs(self.scope["query_string"].decode())
+        return params.get('password', (None,))[0]
 
     def send_error(self, message: str):
         error_event = Event(
@@ -196,6 +201,7 @@ class BaseGameConsumer(JsonWebsocketConsumer):
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(
                 player=self.player,
+                payload={'password': self.get_query_password()},
             )
         )
         events = self.controller.player_event(player_joined_event)

@@ -225,3 +225,56 @@ class SingleGameConsumerTestCase(TestCase):
 
         await communicator1.disconnect()
         await communicator2.disconnect()
+
+    async def test_join_password_required(self):
+        """If password not given when asked for.. well...."""
+        username1 = 'test_user_1'
+        communicator1 = self.get_communicator(username=username1)
+        channel_layer = get_channel_layer()
+
+        self.session_record.is_private = True
+        self.session_record.set_password('test_password')
+        await database_sync_to_async(self.session_record.save)()
+
+        await communicator1.connect()
+        error_message = await communicator1.receive_json_from()
+
+        self.assertEqual(error_message['type'], Event.SERVER_ERROR)
+
+        await communicator1.disconnect()
+
+    async def test_join_with_wrong_password(self):
+        """If password doesn't match it's sad"""
+        username1 = 'test_user_1'
+        communicator1 = self.get_communicator(username=username1,
+                                              password='wrong_password')
+        channel_layer = get_channel_layer()
+
+        self.session_record.is_private = True
+        self.session_record.set_password('test_password')
+        await database_sync_to_async(self.session_record.save)()
+
+        await communicator1.connect()
+        error_message = await communicator1.receive_json_from()
+
+        self.assertEqual(error_message['type'], Event.SERVER_ERROR)
+
+        await communicator1.disconnect()
+
+    async def test_join_with_password_good(self):
+        """If password fits we rolllllll"""
+        username1 = 'test_user_1'
+        communicator1 = self.get_communicator(username=username1,
+                                              password='test_password')
+        channel_layer = get_channel_layer()
+
+        self.session_record.is_private = True
+        self.session_record.set_password('test_password')
+        await database_sync_to_async(self.session_record.save)()
+
+        await communicator1.connect()
+        message = await communicator1.receive_json_from()
+
+        self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
+
+        await communicator1.disconnect()

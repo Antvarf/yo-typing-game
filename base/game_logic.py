@@ -72,6 +72,7 @@ class Event:
     SERVER_TICK = 'tick'
     SERVER_ERROR = 'error'
     # SERVER_USERNAME_SWITCH = 'username_switch'
+    SERVER_NEW_HOST = 'new_host'
 
     TRIGGER_TICK = 'tick'
 
@@ -224,12 +225,17 @@ class BasePlayerController(ABC):
         self._insert_into_repr(player)
         self._perform_database_update(self.session, player)
 
-    def get_player(self, id: int) -> LocalPlayer | None:
-        return self._players_dict.get(id, None)
+    def get_player(self, player_id: int = None) -> LocalPlayer | None:
+        if player_id is None:
+            # get any player (this is so awfully bad)
+            id_list = list(self._players_dict.keys()
+                           or (None,))
+            player_id = id_list.pop()
+        return self._players_dict.get(player_id, None)
 
-    def remove_player(self, id: int):
-        if id in self._players_dict:
-            player = self._players_dict.pop(id)
+    def remove_player(self, player_id: int):
+        if player_id in self._players_dict:
+            player = self._players_dict.pop(player_id)
             if player.is_ready:
                 self._ready_count -= 1
             if player.voted_for is not None:
@@ -415,7 +421,7 @@ class BaseGameController(ABC):
         self._modes_available = GameModes.labels
         self._game_begins_at = None
 
-        self._host_player = None
+        self._host_id = None
 
     def player_event(self, event: Event) -> list[Event]:
         if not event.is_valid():
@@ -425,16 +431,15 @@ class BaseGameController(ABC):
         return events
 
     @property
-    def host_player(self) -> Player:
-        return self._host_player
+    def host_id(self) -> int:
+        return self._host_id
 
-    @host_player.setter
-    def host_player(self, new_host: Player):
+    def set_host(self, new_host: Player):
         if type(new_host) is not Player:
             raise TypeError('host should be of type `Player`')
         if not self._player_exists(new_host):
             raise ValueError(f'player {new_host} is not in session')
-        self._host_player = new_host
+        self._host_id = new_host.pk
 
     @property
     def _players(self):
@@ -483,6 +488,8 @@ class BaseGameController(ABC):
         events = []
         if self._player_exists(player):
             self._remove_player(player)
+            if self._is_host(player):
+                events.append(self._set_new_host())
             events.append(self._get_players_update_event())
             if not self._player_count and self._state is self.STATE_PLAYING:
                 events.append(self._game_over())
@@ -528,7 +535,7 @@ class BaseGameController(ABC):
 
     def _handle_tick(self, player, **kwargs) -> list[Event]:
         events = []
-        if self._host_player is None or player.pk != self._host_player.pk:
+        if not self._is_host(player):
             pass
 
         elif self._state is self.STATE_PREPARING:
@@ -653,6 +660,20 @@ class BaseGameController(ABC):
         Checks if player with given player record is present in the session
         """
         return bool(self._get_player(player) is not None)
+
+    def _is_host(self, player: Player):
+        if self._host_id is None:
+            return False
+        return self._host_id == player.pk
+
+    def _set_new_host(self) -> Event:
+        # TODO: at this point I have to finally snap, player control flow needs
+        #       to be refactored (and covered with tests)
+        new_host = self._player_controller.get_player()
+        self._host_id = new_host and new_host.id
+        event = Event(type=Event.SERVER_NEW_HOST,
+                      target=Event.TARGET_ALL, data=self.host_id)
+        return event
 
     def _set_ready_state(self, player: Player, state: bool):
         self._player_controller.set_ready_state(player.pk, state)

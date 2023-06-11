@@ -1133,6 +1133,50 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(events[0].target, Event.TARGET_ALL)
         self.assertEqual(events[0].data, self.other_player_record.id)
 
+    def test_player_join_no_password_fails_for_private(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+
+        self.session_record.is_private = True
+        self.session_record.set_password('test_password')
+        self.session_record.save()
+        self.controller = self.controller_cls(self.session_record.session_id)
+
+        with self.assertRaises(PlayerJoinRefusedError):
+            self.controller.player_event(join_event)
+
+    def test_player_join_with_wrong_password_fails(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record,
+                               payload={'password': 'wrong_password'}),
+        )
+
+        self.session_record.is_private = True
+        self.session_record.set_password('test_password')
+        self.session_record.save()
+        self.controller = self.controller_cls(self.session_record.session_id)
+
+        with self.assertRaises(PlayerJoinRefusedError):
+            self.controller.player_event(join_event)
+
+    def test_player_join_with_correct_password(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record,
+                               payload={'password': 'test_password'}),
+        )
+
+        self.session_record.is_private = True
+        self.session_record.set_password('test_password')
+        self.session_record.save()
+        self.controller = self.controller_cls(self.session_record.session_id)
+
+        self.controller.player_event(join_event)
+
+
 # TODO: add test for game over condition (should be per mode)
 
 

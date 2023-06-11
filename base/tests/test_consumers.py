@@ -1,7 +1,9 @@
 import urllib.parse
 
 from channels.db import database_sync_to_async
+from channels.layers import get_channel_layer
 from channels.routing import URLRouter
+from django.conf import settings
 from django.test import TestCase
 from channels.testing import WebsocketCommunicator
 from django.urls import path
@@ -180,3 +182,46 @@ class SingleGameConsumerTestCase(TestCase):
         self.assertTrue(await communicator1.receive_nothing())
 
         await communicator1.disconnect()
+
+    async def test_tick(self):
+        """Only host player sends ticks"""
+        username1 = 'test_user_1'
+        username2 = 'test_user_2'
+        communicator1 = self.get_communicator(username=username1)
+        communicator2 = self.get_communicator(username=username2)
+        channel_layer = get_channel_layer()
+
+        await communicator1.connect()
+        await communicator2.connect()
+        for i in range(3):
+            await communicator1.receive_json_from()
+
+        await channel_layer.group_send(settings.HOSTS_LAYER_NAME, {
+                'type': 'session.tick',
+            },)
+        self.assertTrue(await communicator1.receive_nothing())
+
+        await communicator1.send_json_to({
+            'type': Event.PLAYER_READY_STATE,
+            'data': True,
+        })
+        await communicator2.send_json_to({
+            'type': Event.PLAYER_READY_STATE,
+            'data': True,
+        })
+
+        for i in range(4):
+            await communicator1.receive_json_from()
+
+        self.assertTrue(await communicator1.receive_nothing())
+
+        await channel_layer.group_send(settings.HOSTS_LAYER_NAME, {
+                'type': 'session.tick',
+            },)
+        update_message = await communicator1.receive_json_from()
+
+        self.assertEqual(update_message['type'], Event.SERVER_PLAYERS_UPDATE)
+        self.assertTrue(await communicator1.receive_nothing())
+
+        await communicator1.disconnect()
+        await communicator2.disconnect()

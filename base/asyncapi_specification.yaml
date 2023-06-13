@@ -153,48 +153,122 @@ components:
       required:
         - type
 
-    player_schema:
+    competitor_stats:
       type: object
       properties:
-        id:
-          type: integer
-        displayed_name:
-          type: string
         score:
           type: integer
         speed:
           type: number
         time_left:
           type: number
-        is_ready:
-          type: boolean
       required:
-        - id
-        - displayed_name
         - score
         - speed
         - time_left
-        - is_ready
 
-    game_results:
+    competitor_results:
+      type: object
+      properties:
+        is_winner:
+          type: boolean
+      required:
+        - is_winner
+
+    player:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/competitor_stats'
+        - properties:
+            id:
+              type: integer
+            displayed_name:
+              type: string
+            is_ready:
+              type: boolean
+            is_finished:
+              description: |
+                Is present if words are limited
+              type: boolean
+            is_out:
+              description: |
+                Is present if survival is on
+              type: boolean
+            team:
+              description: |
+                Is present if playing in teams
+              type: string
+          required:
+            - id
+            - displayed_name
+            - is_ready
+
+    players:
       type: array
       items:
-        allOf:
-          - $ref: '#/components/schemas/player_schema'
-          - properties:
-              is_winner:
-                type: boolean
-            required:
-              - is_winner
+        - $ref: '#/components/schemas/player'
+
+    player_results:
+      type: array
+      items:
+        - allOf:
+            - $ref: '#/components/schemas/player'
+            - $ref: '#/components/schemas/competitor_results'
+
+    team:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/competitor_stats'
+        - properties:
+            players:
+              $ref: '#/components/schemas/players'
+          required:
+            - players
+
+    teams:
+      type: object
+      properties:
+        red:
+          $ref: '#/components/schemas/team'
+        blue:
+          $ref: '#/components/schemas/team'
+      required:
+        - red
+        - blue
+
+    teams_results:
+      type: object
+      properties:
+        red:
+          allOf:
+            - $ref: '#/components/schemas/team'
+            - $ref: '#/components/schemas/competitor_results'
+        blue:
+          allOf:
+            - $ref: '#/components/schemas/team'
+            - $ref: '#/components/schemas/competitor_results'
+      required:
+        - red
+        - blue
+
+    game_results:
+      oneOf:
+        - $ref: '#/components/schemas/player_results'
+        - $ref: '#/components/schemas/teams_results'
 
     player_related_event:
       type: object
-      properties:
-        players:
-          type: array
-          # TODO: implement mode-dependent definitions
-          items:
-            - $ref: '#/components/schemas/player_schema'
+      oneOf:
+        - properties:
+            players:
+              $ref: '#/components/schemas/players'
+          required:
+            - players
+        - properties:
+            teams:
+              $ref: '#/components/schemas/teams'
+          required:
+            - teams
 
     ## Server message schemas
     initial_state:
@@ -208,7 +282,7 @@ components:
                 - $ref: '#/components/schemas/player_related_event'
                 - properties:
                     player:
-                      $ref: '#/components/schemas/player_schema'
+                      $ref: '#/components/schemas/player'
                     words:
                       type: array
                       items:

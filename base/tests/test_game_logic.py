@@ -13,7 +13,7 @@ from base.game_logic import (
     PlayerJoinRefusedError,
     ControllerStorage,
     BaseGameController,
-    GameOverError, EndlessGameController, TugOfWarGameController,
+    GameOverError, EndlessGameController, TugOfWarGameController, InvalidModeChoiceError, PlayerController,
 )
 from base.models import (
     GameSession,
@@ -26,12 +26,161 @@ class WordListProviderTestCase(TestCase):
     pass
 
 
-class BasePlayerControllerTestCase(TestCase):
-    pass
+class PlayerControllerTestCase(TestCase):
+    controller_cls = PlayerController
 
+    def setUp(self):
+        self.session = GameSession.objects.create(mode=GameModes.SINGLE)
+        self.player = Player.objects.create(displayed_name='test_user_1')
+        self.other_player = Player.objects.create(displayed_name='test_user_2')
+        self.controller = self.controller_cls(session=self.session)
 
-class PlayerPlainControllerTestCase(TestCase):
-    pass
+    def test_init_defaults(self):
+        """
+        :survival: adds :is_out: field to LocalPlayer
+        :race: adds :is_finished: field to LocalPlayer
+        :teams: adds :team: field to LocalPlayer, restructures repr
+        """
+        self.assertEqual(self.controller.player_count, 0)
+        self.assertEqual(self.controller.ready_count, 0)
+        self.assertEqual(self.controller.voted_count, 0)
+        self.assertEqual(self.session.players_now, 0)
+
+        self.assertEqual(self.controller._options.game_duration, 60)
+        self.assertEqual(self.controller._options.survival_enabled, False)
+        self.assertEqual(self.controller._options.race_enabled, False)
+        self.assertEqual(self.controller._options.teams_enabled, False)
+
+    def test_player_init(self):
+        self.controller.add_player(self.player)
+        local_player = self.controller.get_player(self.player.pk)
+
+        self.assertEqual(local_player.id, self.player.id)
+        self.assertEqual(local_player.score, 0)
+        self.assertEqual(local_player.speed, 0)
+        self.assertEqual(local_player.is_ready, False)
+        self.assertEqual(local_player.time_left,
+                         self.controller._options.game_duration)
+        self.assertEqual(local_player.displayed_name,
+                         self.player.displayed_name)
+
+        self.controller.remove_player(self.player.pk)
+
+    def test_add_player_increases_player_count(self):
+        self.controller.add_player(self.player)
+
+        self.assertEqual(self.session.players_now, 1)
+        self.assertEqual(self.controller.player_count, 1)
+        self.assertEqual(self.controller.ready_count, 0)
+        self.assertEqual(self.controller.voted_count, 0)
+
+    def test_remove_player_decreases_player_count(self):
+        self.controller.add_player(self.player)
+        self.controller.add_player(self.other_player)
+        self.controller.remove_player(self.player.pk)
+
+        self.assertEqual(self.session.players_now, 1)
+        self.assertEqual(self.controller.player_count, 1)
+        self.assertEqual(self.controller.ready_count, 0)
+        self.assertEqual(self.controller.voted_count, 0)
+
+    def test_remove_player_decreases_ready_voted_counts(self):
+        self.controller.add_player(self.player)
+        self.controller.add_player(self.other_player)
+        self.controller.set_ready_state(self.player.pk, True)
+        self.controller.set_ready_state(self.other_player.pk, True)
+        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.other_player.pk,
+                                        GameModes.SINGLE.label)
+        self.controller.remove_player(self.player.pk)
+
+        self.assertEqual(self.session.players_now, 1)
+        self.assertEqual(self.controller.player_count, 1)
+        self.assertEqual(self.controller.ready_count, 1)
+        self.assertEqual(self.controller.voted_count, 1)
+
+    def test_add_player_cannot_exceed_max_players(self):
+        self.session.players_max = 1
+        self.controller = self.controller_cls(session=self.session)
+        self.controller.add_player(self.player)
+
+        with self.assertRaisesMessage(PlayerJoinRefusedError,
+                                      'Max players limit was reached'):
+            self.controller.add_player(self.other_player)
+
+    def test_remove_player_raises_key_error_for_nonexistent_players(self):
+        with self.assertRaises(KeyError):
+            self.controller.remove_player(self.player.pk)
+
+        self.assertEqual(self.session.players_now, 0)
+        self.assertEqual(self.controller.player_count, 0)
+        self.assertEqual(self.controller.ready_count, 0)
+        self.assertEqual(self.controller.voted_count, 0)
+
+    def test_get_player_raises_key_error_for_nonexistent_players(self):
+        with self.assertRaises(KeyError):
+            self.controller.get_player(self.player.pk)
+
+    def test_set_ready_state_increases_player_count_only_once(self):
+        self.controller.add_player(self.player)
+        self.controller.set_ready_state(self.player.pk, True)
+        self.controller.set_ready_state(self.player.pk, True)
+
+        self.assertEqual(self.controller.ready_count, 1)
+
+    def test_set_ready_state_decreases_player_count_only_once(self):
+        self.controller.add_player(self.player)
+        self.controller.add_player(self.other_player)
+        self.controller.set_ready_state(self.player.pk, True)
+        self.controller.set_ready_state(self.other_player.pk, True)
+        self.controller.set_ready_state(self.player.pk, False)
+        self.controller.set_ready_state(self.player.pk, False)
+
+        self.assertEqual(self.controller.ready_count, 1)
+
+    def test_set_ready_state_raises_key_error_for_controller(self):
+        with self.assertRaises(KeyError):
+            self.controller.set_ready_state(self.player.pk, True)
+        self.assertEqual(self.controller.ready_count, 0)
+
+        with self.assertRaises(KeyError):
+            self.controller.set_ready_state(self.player.pk, False)
+        self.assertEqual(self.controller.ready_count, 0)
+
+    def test_set_player_vote_increases_voted_count_only_once(self):
+        self.controller.add_player(self.player)
+        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+
+        self.assertEqual(self.controller.voted_count, 1)
+
+    def test_set_player_vote_raises_error_for_invalid_mode_choice(self):
+        self.controller.add_player(self.player)
+        with self.assertRaisesMessage(InvalidModeChoiceError,
+                                      'Cannot select mode `fake_mode`'):
+            self.controller.set_player_vote(self.player.pk, 'fake_mode')
+
+        self.assertEqual(self.controller.voted_count, 0)
+
+    def test_set_player_vote_increases_voted_count_once_per_player(self):
+        self.controller.add_player(self.player)
+        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player.pk, GameModes.ENDLESS.label)
+
+        self.assertEqual(self.controller.voted_count, 1)
+
+    def test_set_player_vote_increases_votes_count_once_per_mode(self):
+        self.controller.add_player(self.player)
+        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+
+        self.assertEqual(self.controller.votes[GameModes.SINGLE.label], 1)
+
+    def test_set_player_vote_raises_key_error_for_nonexistent_player(self):
+        with self.assertRaises(KeyError):
+            self.controller.set_player_vote(self.player.pk,
+                                            GameModes.SINGLE.label)
+        self.assertEqual(self.controller.voted_count, 0)
 
 
 class SingleGameControllerTestCase(TestCase):

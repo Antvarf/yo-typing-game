@@ -4,7 +4,7 @@ import random
 import secrets
 from abc import ABC, abstractmethod
 from collections import Counter
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, InitVar
 import typing
 from functools import cached_property
 
@@ -121,6 +121,10 @@ class InvalidGameStateError(ControllerError):
     pass
 
 
+class InvalidModeChoiceError(ControllerError):
+    pass
+
+
 class WordListProvider:
     def __init__(self):
         self._words = []
@@ -152,15 +156,18 @@ class WordListProvider:
 
 @dataclass
 class LocalPlayer:
-    id: int
-    displayed_name: str
+    player: InitVar[Player]
+
+    id: int = None
+    displayed_name: str = None
     score: int = 0
     speed: float = 0
     time_left: float = None
     is_ready: bool = False
+    is_finished: bool = False
+    is_out: bool = False
 
-    def __init__(self, player: Player):
-        super().__init__()
+    def __post_init__(self, player: Player):
         self.id = player.pk
         self.displayed_name = player.displayed_name
         self.old_displayed_name = None
@@ -176,7 +183,7 @@ class LocalPlayer:
     def add_word_iterator(self, words: list[str]):
         self._next_word = iter(words)
 
-    def get_next_word(self) -> str:
+    def get_next_word(self) -> str | None:
         if self._next_word is None:
             return
         return next(self._next_word)
@@ -200,6 +207,99 @@ class LocalPlayer:
             'is_winner': self.is_winner,
         })
         return result
+
+
+@dataclass
+class GameOptions:
+    game_duration: int = 60
+    survival_enabled: bool = False
+    race_enabled: bool = False
+    teams_enabled: bool = False
+
+
+@dataclass
+class PlayerController:
+    players: list[LocalPlayer]
+    teams: dict[str, dict[str, typing.Any]]
+
+    def __init__(self, session: GameSession):
+        super().__init__()
+        self.session = session
+        self.ready_count = 0
+        self.voted_count = 0
+        self._displayed_names = set()
+        self._players = dict()
+        self._options = GameOptions()
+        self.players = list()
+        self.teams = dict()
+
+    @property
+    def player_count(self):
+        return len(self._players)
+
+    @property
+    def votes(self):
+        _votes = Counter([p.voted_for
+                          for p in self._players.values() if p.voted_for])
+        return _votes
+
+    @staticmethod
+    def updates_db(f):
+        def wrapper(self, *args, **kwargs):
+            result = f(self, *args, **kwargs)
+            self._perform_database_update()
+            return result
+        return wrapper
+
+    @updates_db
+    def add_player(self, player: Player):
+        if player.pk in self._players:
+            return
+        if self.session.players_max \
+           and self.player_count >= self.session.players_max:
+            raise PlayerJoinRefusedError('Max players limit was reached')
+
+        local_player = self._init_local_player(player)
+        self._players[player.pk] = local_player
+
+    def get_player(self, player_id: int) -> LocalPlayer:
+        return self._players[player_id]
+
+    @updates_db
+    def remove_player(self, player_id: int):
+        player = self._players.pop(player_id)
+        if player.is_ready:
+            self.ready_count -= 1
+        if player.voted_for is not None:
+            self.voted_count -= 1
+
+    def set_ready_state(self, player_id: int, state: bool):
+        player = self.get_player(player_id)
+        if player.is_ready != state:
+            self.ready_count += 1 if state else -1
+            player.is_ready = state
+
+    def set_player_vote(self, player_id: int, vote: str):
+        if vote not in GameModes.labels:
+            raise InvalidModeChoiceError(f'Cannot select mode `{vote}`')
+        player = self.get_player(player_id)
+        if player.voted_for is None:
+            self.voted_count += 1
+            player.voted_for = vote
+
+    def _perform_database_update(self):
+        self._update_session_record()
+
+    def _update_session_record(self):
+        self.session.players_now = self.player_count
+        self.session.save()
+
+    def _init_local_player(self, player: Player):
+        local_player = LocalPlayer(
+            player,
+            time_left=self._options.game_duration,
+        )
+        return local_player
 
 
 class BasePlayerController(ABC):

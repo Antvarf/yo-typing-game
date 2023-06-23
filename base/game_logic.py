@@ -4,10 +4,11 @@ import random
 import secrets
 from abc import ABC, abstractmethod
 from collections import Counter
-from dataclasses import dataclass, asdict, InitVar
+from dataclasses import dataclass, asdict, InitVar, field
 import typing
 from functools import cached_property
 
+import dataclass_factory
 from django.utils import timezone
 
 from base import helpers
@@ -125,6 +126,10 @@ class InvalidModeChoiceError(ControllerError):
     pass
 
 
+class InvalidOperationError(ControllerError):
+    pass
+
+
 class WordListProvider:
     def __init__(self):
         self._words = []
@@ -166,6 +171,7 @@ class LocalPlayer:
     is_ready: bool = False
     is_finished: bool = False
     is_out: bool = False
+    team_name: str = None
 
     def __post_init__(self, player: Player):
         self.id = player.pk
@@ -209,29 +215,111 @@ class LocalPlayer:
         return result
 
 
+@dataclass(init=False)
+class LocalTeam:
+    players: list
+    score: int
+    speed: float
+    time_left: float
+    is_finished: bool
+    is_out: bool
+
+    _players: dict
+
+    def __init__(self):
+        self._players = dict()
+
+    def add_player(self, player: LocalPlayer):
+        self._players[player.id] = player
+
+    def remove_player(self, player: LocalPlayer):
+        self._players.pop(player.id)
+
+    @property
+    def players(self):
+        return list(self._players.values())
+
+    @property
+    def score(self):
+        return sum(p.score for p in self.players)
+
+    @property
+    def speed(self):
+        player_count = len(self.players)
+        if player_count:
+            return sum(p.speed for p in self.players) / player_count
+
+    @property
+    def time_left(self):
+        return sum(p.time_left for p in self.players)
+
+    @property
+    def is_finished(self):
+        return all(p.is_finished for p in self.players)
+
+    @property
+    def is_out(self):
+        return all(p.is_out for p in self.players)
+
+
 @dataclass
 class GameOptions:
+    WIN_CONDITION_BEST_SCORE = 'PointsCompetition'
+    WIN_CONDITION_BEST_TIME = 'Race'
+    WIN_CONDITION_SURVIVED = 'Survival'
+
     game_duration: int = 60
-    survival_enabled: bool = False
-    race_enabled: bool = False
-    teams_enabled: bool = False
+    win_condition: str = WIN_CONDITION_BEST_SCORE
+    team_mode: bool = False
 
 
-@dataclass
+@dataclass(init=False)
 class PlayerController:
     players: list[LocalPlayer]
-    teams: dict[str, dict[str, typing.Any]]
+    teams: dict[str, LocalTeam]
 
-    def __init__(self, session: GameSession):
-        super().__init__()
+    def __init__(self, session: GameSession,
+                 options: GameOptions = GameOptions()):
         self.session = session
         self.ready_count = 0
         self.voted_count = 0
         self._displayed_names = set()
         self._players = dict()
-        self._options = GameOptions()
-        self.players = list()
-        self.teams = dict()
+        self._options = options
+        if self._options.team_mode:
+            self.teams = dict()
+            self.team_red = self.teams['red'] = LocalTeam()
+            self.team_blue = self.teams['blue'] = LocalTeam()
+
+        self_fields_included = []
+        player_fields_included = ['id', 'displayed_name', 'score',
+                                  'speed', 'time_left', 'is_ready']
+        team_fields_included = ['players', 'score', 'speed', 'time_left']
+
+        if self._options.team_mode:
+            self_fields_included.append('teams')
+            player_fields_included.append('team_name')
+        else:
+            self_fields_included.append('players')
+        if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
+            player_fields_included.append('is_out')
+            team_fields_included.append('is_out')
+
+        self_schema = dataclass_factory.Schema(only=self_fields_included)
+        player_schema = dataclass_factory.Schema(only=player_fields_included)
+        team_schema = dataclass_factory.Schema(only=team_fields_included)
+        # TODO: add is_finished param
+        self._factory = dataclass_factory.Factory(
+            schemas={
+                PlayerController: self_schema,
+                LocalPlayer: player_schema,
+                LocalTeam: team_schema,
+            },
+        )
+
+    @property
+    def players(self):
+        return list(self._players.values())
 
     @property
     def player_count(self):
@@ -262,30 +350,59 @@ class PlayerController:
         local_player = self._init_local_player(player)
         self._players[player.pk] = local_player
 
-    def get_player(self, player_id: int) -> LocalPlayer:
-        return self._players[player_id]
+        if self._options.team_mode:
+            if len(self.team_red.players) <= len(self.team_blue.players):
+                local_player.team_name = 'red'
+                team = self.team_red
+            else:
+                local_player.team_name = 'blue'
+                team = self.team_blue
+            team.add_player(local_player)
+
+    def get_player(self, player: Player) -> LocalPlayer:
+        return self._players[player.pk]
 
     @updates_db
-    def remove_player(self, player_id: int):
-        player = self._players.pop(player_id)
-        if player.is_ready:
+    def remove_player(self, player: Player):
+        local_player = self._players.pop(player.pk)
+        if local_player.is_ready:
             self.ready_count -= 1
-        if player.voted_for is not None:
+        if local_player.voted_for is not None:
             self.voted_count -= 1
 
-    def set_ready_state(self, player_id: int, state: bool):
-        player = self.get_player(player_id)
-        if player.is_ready != state:
-            self.ready_count += 1 if state else -1
-            player.is_ready = state
+        if self._options.team_mode:
+            team = self.teams[local_player.team]
+            team.remove_player(local_player)
 
-    def set_player_vote(self, player_id: int, vote: str):
+    def set_ready_state(self, player: Player, state: bool):
+        local_player = self.get_player(player)
+        if local_player.is_ready != state:
+            self.ready_count += 1 if state else -1
+            local_player.is_ready = state
+
+    def set_player_vote(self, player: Player, vote: str):
         if vote not in GameModes.labels:
             raise InvalidModeChoiceError(f'Cannot select mode `{vote}`')
-        player = self.get_player(player_id)
-        if player.voted_for is None:
+        local_player = self.get_player(player)
+        if local_player.voted_for is None:
             self.voted_count += 1
-            player.voted_for = vote
+            local_player.voted_for = vote
+
+    def set_player_team(self, player: Player, team: str):
+        if not self._options.team_mode:
+            raise InvalidOperationError
+
+        team_obj = self.teams[team]
+        local_player = self.get_player(player)
+        player_team = self.teams[local_player.team_name]
+
+        if local_player not in team_obj.players:
+            player_team.remove_player(local_player)
+            team_obj.add_player(local_player)
+            local_player.team_name = team
+
+    def to_dict(self):
+        return self._factory.dump(self)
 
     def _perform_database_update(self):
         self._update_session_record()

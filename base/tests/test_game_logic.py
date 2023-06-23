@@ -13,7 +13,8 @@ from base.game_logic import (
     PlayerJoinRefusedError,
     ControllerStorage,
     BaseGameController,
-    GameOverError, EndlessGameController, TugOfWarGameController, InvalidModeChoiceError, PlayerController,
+    GameOverError, EndlessGameController, TugOfWarGameController, InvalidModeChoiceError, PlayerController, GameOptions,
+    InvalidOperationError,
 )
 from base.models import (
     GameSession,
@@ -47,13 +48,13 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(self.session.players_now, 0)
 
         self.assertEqual(self.controller._options.game_duration, 60)
-        self.assertEqual(self.controller._options.survival_enabled, False)
-        self.assertEqual(self.controller._options.race_enabled, False)
-        self.assertEqual(self.controller._options.teams_enabled, False)
+        self.assertEqual(self.controller._options.win_condition,
+                         GameOptions.WIN_CONDITION_BEST_SCORE)
+        self.assertEqual(self.controller._options.team_mode, False)
 
     def test_player_init(self):
         self.controller.add_player(self.player)
-        local_player = self.controller.get_player(self.player.pk)
+        local_player = self.controller.get_player(self.player)
 
         self.assertEqual(local_player.id, self.player.id)
         self.assertEqual(local_player.score, 0)
@@ -64,7 +65,7 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(local_player.displayed_name,
                          self.player.displayed_name)
 
-        self.controller.remove_player(self.player.pk)
+        self.controller.remove_player(self.player)
 
     def test_add_player_increases_player_count(self):
         self.controller.add_player(self.player)
@@ -77,7 +78,7 @@ class PlayerControllerTestCase(TestCase):
     def test_remove_player_decreases_player_count(self):
         self.controller.add_player(self.player)
         self.controller.add_player(self.other_player)
-        self.controller.remove_player(self.player.pk)
+        self.controller.remove_player(self.player)
 
         self.assertEqual(self.session.players_now, 1)
         self.assertEqual(self.controller.player_count, 1)
@@ -87,12 +88,12 @@ class PlayerControllerTestCase(TestCase):
     def test_remove_player_decreases_ready_voted_counts(self):
         self.controller.add_player(self.player)
         self.controller.add_player(self.other_player)
-        self.controller.set_ready_state(self.player.pk, True)
-        self.controller.set_ready_state(self.other_player.pk, True)
-        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
-        self.controller.set_player_vote(self.other_player.pk,
+        self.controller.set_ready_state(self.player, True)
+        self.controller.set_ready_state(self.other_player, True)
+        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.other_player,
                                         GameModes.SINGLE.label)
-        self.controller.remove_player(self.player.pk)
+        self.controller.remove_player(self.player)
 
         self.assertEqual(self.session.players_now, 1)
         self.assertEqual(self.controller.player_count, 1)
@@ -110,7 +111,7 @@ class PlayerControllerTestCase(TestCase):
 
     def test_remove_player_raises_key_error_for_nonexistent_players(self):
         with self.assertRaises(KeyError):
-            self.controller.remove_player(self.player.pk)
+            self.controller.remove_player(self.player)
 
         self.assertEqual(self.session.players_now, 0)
         self.assertEqual(self.controller.player_count, 0)
@@ -119,38 +120,38 @@ class PlayerControllerTestCase(TestCase):
 
     def test_get_player_raises_key_error_for_nonexistent_players(self):
         with self.assertRaises(KeyError):
-            self.controller.get_player(self.player.pk)
+            self.controller.get_player(self.player)
 
     def test_set_ready_state_increases_player_count_only_once(self):
         self.controller.add_player(self.player)
-        self.controller.set_ready_state(self.player.pk, True)
-        self.controller.set_ready_state(self.player.pk, True)
+        self.controller.set_ready_state(self.player, True)
+        self.controller.set_ready_state(self.player, True)
 
         self.assertEqual(self.controller.ready_count, 1)
 
     def test_set_ready_state_decreases_player_count_only_once(self):
         self.controller.add_player(self.player)
         self.controller.add_player(self.other_player)
-        self.controller.set_ready_state(self.player.pk, True)
-        self.controller.set_ready_state(self.other_player.pk, True)
-        self.controller.set_ready_state(self.player.pk, False)
-        self.controller.set_ready_state(self.player.pk, False)
+        self.controller.set_ready_state(self.player, True)
+        self.controller.set_ready_state(self.other_player, True)
+        self.controller.set_ready_state(self.player, False)
+        self.controller.set_ready_state(self.player, False)
 
         self.assertEqual(self.controller.ready_count, 1)
 
     def test_set_ready_state_raises_key_error_for_controller(self):
         with self.assertRaises(KeyError):
-            self.controller.set_ready_state(self.player.pk, True)
+            self.controller.set_ready_state(self.player, True)
         self.assertEqual(self.controller.ready_count, 0)
 
         with self.assertRaises(KeyError):
-            self.controller.set_ready_state(self.player.pk, False)
+            self.controller.set_ready_state(self.player, False)
         self.assertEqual(self.controller.ready_count, 0)
 
     def test_set_player_vote_increases_voted_count_only_once(self):
         self.controller.add_player(self.player)
-        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
-        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
 
         self.assertEqual(self.controller.voted_count, 1)
 
@@ -158,29 +159,226 @@ class PlayerControllerTestCase(TestCase):
         self.controller.add_player(self.player)
         with self.assertRaisesMessage(InvalidModeChoiceError,
                                       'Cannot select mode `fake_mode`'):
-            self.controller.set_player_vote(self.player.pk, 'fake_mode')
+            self.controller.set_player_vote(self.player, 'fake_mode')
 
         self.assertEqual(self.controller.voted_count, 0)
 
     def test_set_player_vote_increases_voted_count_once_per_player(self):
         self.controller.add_player(self.player)
-        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
-        self.controller.set_player_vote(self.player.pk, GameModes.ENDLESS.label)
+        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player, GameModes.ENDLESS.label)
 
         self.assertEqual(self.controller.voted_count, 1)
 
     def test_set_player_vote_increases_votes_count_once_per_mode(self):
         self.controller.add_player(self.player)
-        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
-        self.controller.set_player_vote(self.player.pk, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
+        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
 
         self.assertEqual(self.controller.votes[GameModes.SINGLE.label], 1)
 
     def test_set_player_vote_raises_key_error_for_nonexistent_player(self):
         with self.assertRaises(KeyError):
-            self.controller.set_player_vote(self.player.pk,
+            self.controller.set_player_vote(self.player,
                                             GameModes.SINGLE.label)
         self.assertEqual(self.controller.voted_count, 0)
+
+    def test_players_to_dict_without_teams(self):
+        """
+        If `team_mode` option is False:
+            - .to_dict() only contains `players`
+            - player representation does not contain `team` field
+        """
+        self.controller.add_player(self.player)
+        dict_repr = self.controller.to_dict()
+        players = dict_repr.get('players')
+        player = players[0]
+
+        self.assertFalse(self.controller._options.team_mode)
+        self.assertNotIn('teams', dict_repr)
+
+        self.assertIsInstance(dict_repr, dict)
+        self.assertIsInstance(players, list)
+        self.assertIsInstance(player, dict)
+        self.assertNotIn('team', player)
+
+    def test_players_to_dict_with_teams(self):
+        """
+        If `team_mode` option is True, .to_dict() only contains `teams`
+        """
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+        )
+        self.controller.add_player(self.player)
+        dict_repr = self.controller.to_dict()
+        teams = dict_repr.get('teams')
+        team_red, team_blue = teams.get('red'), teams.get('blue')
+        player = (team_red['players'] or team_blue['players'])[0]
+
+        self.assertTrue(self.controller._options.team_mode)
+        self.assertNotIn('players', dict_repr)
+
+        self.assertIsInstance(dict_repr, dict)
+        self.assertIsInstance(teams, dict)
+        self.assertIsInstance(team_red, dict)
+        self.assertIsInstance(team_blue, dict)
+
+        self.assertEqual(teams.keys(), {'red', 'blue'})
+        self.assertIn('players', team_red)
+        self.assertIn('players', team_blue)
+        self.assertIsInstance(player, dict)
+        self.assertIn('team_name', player)
+
+    def test_default_add_player_with_teams_distribution(self):
+        """Player is added to team with fewer players. Red is the default"""
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+        )
+        self.controller.add_player(self.player)
+        dict_repr = self.controller.to_dict()
+        team_red_before = dict_repr.get('teams').get('red')
+        team_blue_before = dict_repr.get('teams').get('blue')
+        red_player = team_red_before['players'][0]
+
+        self.controller.add_player(self.other_player)
+        dict_repr = self.controller.to_dict()
+        team_red_after = dict_repr.get('teams').get('red')
+        team_blue_after = dict_repr.get('teams').get('blue')
+        blue_player = team_blue_after['players'][0]
+
+        self.assertEqual(len(team_red_before.get('players')), 1)
+        self.assertEqual(len(team_blue_before.get('players')), 0)
+        self.assertEqual(len(team_red_after.get('players')), 1)
+        self.assertEqual(len(team_blue_after.get('players')), 1)
+        self.assertEqual(red_player['team_name'], 'red')
+        self.assertEqual(blue_player['team_name'], 'blue')
+
+    def test_set_player_team(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+        )
+        self.controller.add_player(self.player)
+        teams = self.controller.to_dict()['teams']
+        red_player = teams['red']['players'][0].copy()
+        self.controller.set_player_team(player=self.player, team='blue')
+        teams = self.controller.to_dict()['teams']
+        blue_player = teams['blue']['players'][0].copy()
+
+        self.assertEqual(red_player['id'], blue_player['id'])
+        self.assertEqual(red_player['team_name'], 'red')
+        self.assertEqual(blue_player['team_name'], 'blue')
+        self.assertEqual(len(self.controller.team_red.players), 0)
+        self.assertEqual(len(self.controller.team_blue.players), 1)
+
+    def test_set_player_team_with_invalid_team_raises_key_error(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+        )
+        self.controller.add_player(self.player)
+
+        with self.assertRaises(KeyError):
+            self.controller.set_player_team(player=self.player, team='invalid')
+        player = self.controller.get_player(self.player)
+
+        self.assertEqual(player.team_name, 'red')
+        self.assertEqual(len(self.controller.team_red.players), 1)
+        self.assertEqual(len(self.controller.team_blue.players), 0)
+
+    def test_set_player_team_raises_key_error_if_player_is_absent(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+        )
+
+        with self.assertRaises(KeyError):
+            self.controller.set_player_team(player=self.player, team='red')
+
+        self.assertEqual(len(self.controller.team_red.players), 0)
+        self.assertEqual(len(self.controller.team_blue.players), 0)
+
+    def test_set_player_team_changes_nothing_for_the_same_team(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+        )
+        self.controller.add_player(self.player)
+        teams_1 = self.controller.to_dict()['teams']
+        red_player_1 = teams_1['red']['players'][0].copy()
+        self.controller.set_player_team(player=self.player, team='red')
+        teams_2 = self.controller.to_dict()['teams']
+        red_player_2 = teams_2['red']['players'][0].copy()
+
+        self.assertEqual(red_player_1, red_player_2)
+        self.assertEqual(red_player_1['team_name'], 'red')
+        self.assertEqual(len(self.controller.team_red.players), 1)
+        self.assertEqual(len(self.controller.team_blue.players), 0)
+
+    def test_set_player_team_raises_error_if_teams_are_disabled(self):
+        self.controller.add_player(self.player)
+
+        with self.assertRaises(InvalidOperationError):
+            self.controller.set_player_team(player=self.player, team='red')
+
+    def test_team_mode_for_survival_moves_time_left(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+                win_condition=GameOptions.WIN_CONDITION_SURVIVED,
+            )
+        )
+        self.controller.add_player(self.player)
+        teams = self.controller.to_dict()['teams']
+
+        self.assertIn('time_left', teams['red'])
+        self.assertIn('time_left', teams['blue'])
+        # self.assertNotIn('time_left', teams['red']['players'][0])
+
+    def test_team_mode_for_race_moves_time_left(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+                win_condition=GameOptions.WIN_CONDITION_BEST_TIME,
+            )
+        )
+        self.controller.add_player(self.player)
+        teams = self.controller.to_dict()['teams']
+
+        self.assertIn('time_left', teams['red'])
+        self.assertIn('time_left', teams['blue'])
+        # self.assertNotIn('time_left', teams['red']['players'][0])
+
+    def test_team_mode_for_competition_moves_time_left(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+                win_condition=GameOptions.WIN_CONDITION_BEST_SCORE,
+            )
+        )
+        self.controller.add_player(self.player)
+        teams = self.controller.to_dict()['teams']
+
+        self.assertIn('score', teams['red'])
+        self.assertIn('score', teams['blue'])
+        self.assertIn('score', teams['red']['players'][0])
 
 
 class SingleGameControllerTestCase(TestCase):

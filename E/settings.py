@@ -67,13 +67,21 @@ WSGI_APPLICATION = 'E.wsgi.application'
 ASGI_APPLICATION = 'E.routing.application'
 
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
-        },
-    },
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    }
 }
+
+HOSTS_LAYER_NAME = 'SESSION_HOSTS'
+
+# TEST_CHANNEL_LAYERS = {
+#     'default': {
+#         "BACKEND": "channels_redis.core.RedisChannelLayer",
+#         "CONFIG": {
+#             "hosts": [("127.0.0.1", 6379)],
+#         },
+#     },
+# }
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES' : (

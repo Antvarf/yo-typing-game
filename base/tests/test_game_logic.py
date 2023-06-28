@@ -1,19 +1,19 @@
 import copy
 import time
 
-from django.db import transaction
 from django.test import TestCase
 
 from base.game_logic import (
     Event,
     PlayerMessage,
-    InvalidGameStateError,
-    ControllerExistsError,
-    SingleGameController,
-    PlayerJoinRefusedError,
+    PlayerController,
+    LocalPlayer,
+    GameController,
     ControllerStorage,
-    BaseGameController,
-    GameOverError, EndlessGameController, TugOfWarGameController, InvalidModeChoiceError, PlayerController, GameOptions,
+    GameOverError,
+    GameOptions,
+    InvalidModeChoiceError,
+    PlayerJoinRefusedError,
     InvalidOperationError,
 )
 from base.models import (
@@ -34,7 +34,9 @@ class PlayerControllerTestCase(TestCase):
         self.session = GameSession.objects.create(mode=GameModes.SINGLE)
         self.player = Player.objects.create(displayed_name='test_user_1')
         self.other_player = Player.objects.create(displayed_name='test_user_2')
-        self.controller = self.controller_cls(session=self.session)
+        self.words = ['haha', 'hehe']
+        self.controller = self.controller_cls(session=self.session,
+                                              words=self.words)
 
     def test_init_defaults(self):
         """
@@ -53,16 +55,16 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(self.controller._options.team_mode, False)
 
     def test_player_init(self):
-        self.controller.add_player(self.player)
-        local_player = self.controller.get_player(self.player)
+        local_player_1 = self.controller.add_player(self.player)
+        local_player_2 = self.controller.get_player(self.player)
 
-        self.assertEqual(local_player.id, self.player.id)
-        self.assertEqual(local_player.score, 0)
-        self.assertEqual(local_player.speed, 0)
-        self.assertEqual(local_player.is_ready, False)
-        self.assertEqual(local_player.time_left,
-                         self.controller._options.game_duration)
-        self.assertEqual(local_player.displayed_name,
+        self.assertEqual(local_player_1, local_player_2)
+        self.assertEqual(local_player_1.id, self.player.id)
+        self.assertEqual(local_player_1.score, 0)
+        self.assertEqual(local_player_1.speed, 0)
+        self.assertEqual(local_player_1.is_ready, False)
+        self.assertIsNone(local_player_1.time_left)
+        self.assertEqual(local_player_1.displayed_name,
                          self.player.displayed_name)
 
         self.controller.remove_player(self.player)
@@ -102,7 +104,8 @@ class PlayerControllerTestCase(TestCase):
 
     def test_add_player_cannot_exceed_max_players(self):
         self.session.players_max = 1
-        self.controller = self.controller_cls(session=self.session)
+        self.controller = self.controller_cls(session=self.session,
+                                              words=self.words)
         self.controller.add_player(self.player)
 
         with self.assertRaisesMessage(PlayerJoinRefusedError,
@@ -121,6 +124,17 @@ class PlayerControllerTestCase(TestCase):
     def test_get_player_raises_key_error_for_nonexistent_players(self):
         with self.assertRaises(KeyError):
             self.controller.get_player(self.player)
+
+    def test_get_player_returns_any_player_without_args(self):
+        self.controller.add_player(self.player)
+        self.controller.add_player(self.other_player)
+        local_player = self.controller.get_player()
+
+        self.assertIsInstance(local_player, LocalPlayer)
+        self.assertIn(local_player.id, [self.player.id, self.other_player.id])
+
+    def test_get_player_returns_none_without_args_when_no_players(self):
+        self.assertIsNone(self.controller.get_player())
 
     def test_set_ready_state_increases_player_count_only_once(self):
         self.controller.add_player(self.player)
@@ -211,6 +225,7 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
             ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         dict_repr = self.controller.to_dict()
@@ -239,6 +254,7 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
             ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         dict_repr = self.controller.to_dict()
@@ -265,6 +281,7 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
             ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         teams = self.controller.to_dict()['teams']
@@ -285,6 +302,7 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
             ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
 
@@ -302,6 +320,7 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
             ),
+            words=self.words,
         )
 
         with self.assertRaises(KeyError):
@@ -316,6 +335,7 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
             ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         teams_1 = self.controller.to_dict()['teams']
@@ -341,14 +361,15 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
                 win_condition=GameOptions.WIN_CONDITION_SURVIVED,
-            )
+            ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         teams = self.controller.to_dict()['teams']
 
         self.assertIn('time_left', teams['red'])
         self.assertIn('time_left', teams['blue'])
-        # self.assertNotIn('time_left', teams['red']['players'][0])
+        self.assertNotIn('time_left', teams['red']['players'][0])
 
     def test_team_mode_for_race_moves_time_left(self):
         self.controller = self.controller_cls(
@@ -356,7 +377,8 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
                 win_condition=GameOptions.WIN_CONDITION_BEST_TIME,
-            )
+            ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         teams = self.controller.to_dict()['teams']
@@ -371,7 +393,8 @@ class PlayerControllerTestCase(TestCase):
             options=GameOptions(
                 team_mode=True,
                 win_condition=GameOptions.WIN_CONDITION_BEST_SCORE,
-            )
+            ),
+            words=self.words,
         )
         self.controller.add_player(self.player)
         teams = self.controller.to_dict()['teams']
@@ -380,8 +403,60 @@ class PlayerControllerTestCase(TestCase):
         self.assertIn('score', teams['blue'])
         self.assertIn('score', teams['red']['players'][0])
 
+    def test_username_gets_mangled_for_the_same_in_session(self):
+        """
+        If player with username same as the one provided is already present
+        in the session, given username gets mangled.
+        """
+        self.duplicate_name_player = Player.objects.create(
+            displayed_name=self.player.displayed_name
+        )
+        old_username = self.duplicate_name_player.displayed_name
+        self.controller.add_player(self.player)
+        self.controller.add_player(self.duplicate_name_player)
+        self.player.refresh_from_db()
+        self.duplicate_name_player.refresh_from_db()
 
-class SingleGameControllerTestCase(TestCase):
+        local_player_1 = self.controller.get_player(self.player)
+        local_player_2 = self.controller.get_player(
+            self.duplicate_name_player,
+        )
+
+        new_username = local_player_2.displayed_name
+
+        self.assertNotEqual(old_username, new_username)
+        self.assertEqual(old_username, local_player_1.displayed_name)
+        self.assertEqual(new_username, local_player_2.displayed_name)
+        self.assertEqual(old_username, self.player.displayed_name)
+        self.assertEqual(old_username, self.duplicate_name_player.displayed_name)
+
+    def test_displayed_name_gets_unoccupied_if_player_left(self):
+        """
+        If player leaves session, his username can be used without alteration
+        """
+        self.duplicate_name_player = Player.objects.create(
+            displayed_name=self.player.displayed_name
+        )
+        old_username = self.duplicate_name_player.displayed_name
+        self.controller.add_player(self.player)
+        self.controller.remove_player(self.player)
+
+        self.controller.add_player(self.duplicate_name_player)
+        self.player.refresh_from_db()
+        self.duplicate_name_player.refresh_from_db()
+
+        local_player_2 = self.controller.get_player(
+            self.duplicate_name_player,
+        )
+
+        new_username = local_player_2.displayed_name
+
+        self.assertEqual(old_username, new_username)
+        self.assertEqual(old_username, self.player.displayed_name)
+        self.assertEqual(old_username, self.duplicate_name_player.displayed_name)
+
+
+class GameControllerTestCase(TestCase):
     """
     Tests that:
         * GameController can be instanced only when given GameSession exists
@@ -406,7 +481,7 @@ class SingleGameControllerTestCase(TestCase):
         * make this test case inheritable so that it applies to every game mode
         * test invalid events handling
     """
-    controller_cls = SingleGameController
+    controller_cls = GameController
 
     def setUp(self):
         self.session_record = GameSession.objects.create(
@@ -597,8 +672,8 @@ class SingleGameControllerTestCase(TestCase):
         self.session_record.refresh_from_db()
 
         # TODO: test _get_player so we can `trust` it
-        local_player = self.controller._get_player(self.player_record)
-        self.assertIsNone(local_player)
+        with self.assertRaises(KeyError):
+            self.controller._get_player(self.player_record)
 
         self.assertEqual(server_events[0].target, Event.TARGET_ALL)
         self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
@@ -1209,10 +1284,6 @@ class SingleGameControllerTestCase(TestCase):
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(player=self.other_player_record),
         )
-        self.controller._player_controller.set_player_vote(
-            self.player_record.pk,
-            GameModes.SINGLE,
-        )
         p2_left_event = Event(
             type=Event.PLAYER_LEFT,
             data=PlayerMessage(player=self.other_player_record),
@@ -1220,6 +1291,10 @@ class SingleGameControllerTestCase(TestCase):
         players_before = self.session_record.players_now
         self.controller.player_event(p1_joined_event)
         self.controller.player_event(p2_joined_event)
+        self.controller._player_controller.set_player_vote(
+            self.player_record,
+            GameModes.SINGLE.label,
+        )
         server_events = self.controller.player_event(p2_left_event)
         self.session_record.refresh_from_db()
 
@@ -1241,10 +1316,6 @@ class SingleGameControllerTestCase(TestCase):
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(player=self.other_player_record),
         )
-        self.controller._player_controller.set_player_vote(
-            self.player_record.pk,
-            GameModes.SINGLE,
-        )
         p2_left_event = Event(
             type=Event.PLAYER_LEFT,
             data=PlayerMessage(player=self.other_player_record),
@@ -1252,6 +1323,10 @@ class SingleGameControllerTestCase(TestCase):
         players_before = self.session_record.players_now
         self.controller.player_event(p1_joined_event)
         self.controller.player_event(p2_joined_event)
+        self.controller._player_controller.set_player_vote(
+            self.player_record,
+            GameModes.SINGLE.label,
+        )
         self.controller._start_game()
         server_events = self.controller.player_event(p2_left_event)
         self.session_record.refresh_from_db()
@@ -1337,91 +1412,6 @@ class SingleGameControllerTestCase(TestCase):
         self.assertEqual(self.session_record.is_finished, True)
         self.assertIsNotNone(self.session_record.started_at)
         self.assertIsNotNone(self.session_record.finished_at)
-
-    def test_username_gets_mangled_for_the_same_in_session(self):
-        """
-        If player with username same as the one provided is already present
-        in the session, given username gets mangled.
-        """
-        old_username = self.player_record.displayed_name
-        self.duplicate_name_player_record = Player.objects.create(
-            displayed_name=self.player_record.displayed_name
-        )
-        join_event = Event(
-            type=Event.PLAYER_JOINED,
-            data=PlayerMessage(player=self.player_record)
-        )
-        duplicate_name_join_event = Event(
-            type=Event.PLAYER_JOINED,
-            data=PlayerMessage(player=self.duplicate_name_player_record)
-        )
-        self.controller.player_event(join_event)
-        initial_state_event, _ = self.controller.player_event(
-            duplicate_name_join_event
-        )
-        self.duplicate_name_player_record.refresh_from_db()
-        self.player_record.refresh_from_db()
-
-        p1_object = self.controller._get_player(
-            self.player_record
-        )
-        p2_object = self.controller._get_player(
-            self.duplicate_name_player_record
-        )
-
-        new_username = initial_state_event.data['player']['displayed_name']
-
-        self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
-        self.assertNotEqual(old_username, new_username)
-        self.assertEqual(old_username, p1_object.displayed_name)
-        self.assertEqual(new_username, p2_object.displayed_name)
-        self.assertEqual(old_username,
-                         self.player_record.displayed_name)
-        self.assertEqual(new_username,
-                         self.duplicate_name_player_record.displayed_name)
-
-    # def test_displayed_name_gets_untagged_after_leave(self):
-    #     raise Exception
-
-    def test_displayed_name_gets_unoccupied_if_player_left(self):
-        """
-        If player with username same as the one provided is already present
-        in the session, given username gets mangled.
-        """
-        old_username = self.player_record.displayed_name
-        self.duplicate_name_player_record = Player.objects.create(
-            displayed_name=self.player_record.displayed_name
-        )
-
-        join_event = Event(
-            type=Event.PLAYER_JOINED,
-            data=PlayerMessage(player=self.player_record)
-        )
-        leave_event = Event(
-            type=Event.PLAYER_LEFT,
-            data=PlayerMessage(player=self.player_record)
-        )
-        duplicate_name_join_event = Event(
-            type=Event.PLAYER_JOINED,
-            data=PlayerMessage(player=self.duplicate_name_player_record)
-        )
-        self.controller.player_event(join_event)
-        self.controller.player_event(leave_event)
-        initial_state_event, _ = self.controller.player_event(
-            duplicate_name_join_event
-        )
-        self.duplicate_name_player_record.refresh_from_db()
-
-        player_object = self.controller._get_player(
-            self.duplicate_name_player_record
-        )
-
-        displayed_name = initial_state_event.data['player']['displayed_name']
-
-        self.assertEqual(initial_state_event.type, Event.SERVER_INITIAL_STATE)
-        self.assertEqual(old_username, displayed_name)
-        self.assertEqual(old_username, player_object.displayed_name)
-
     def test_host_id_is_none_if_not_set(self):
         """
         If host was not set on session, it defaults to None
@@ -1526,26 +1516,26 @@ class SingleGameControllerTestCase(TestCase):
 # TODO: add test for game over condition (should be per mode)
 
 
-class EndlessGameControllerTestCase(SingleGameControllerTestCase):
-    controller_cls = EndlessGameController
+# class EndlessGameControllerTestCase(SingleGameControllerTestCase):
+#     controller_cls = EndlessGameController
+#
+#     def test_correct_word_increases_time_left(self):
+#         pass
+#
+#     def test_incorrect_word_leaves_time_left_as_is(self):
+#         pass
+#
+#     def test_time_left_cannot_exceed_threshold(self):
+#         pass
 
-    def test_correct_word_increases_time_left(self):
-        pass
 
-    def test_incorrect_word_leaves_time_left_as_is(self):
-        pass
-
-    def test_time_left_cannot_exceed_threshold(self):
-        pass
-
-
-class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
-    controller_cls = TugOfWarGameController
+# class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
+#     controller_cls = TugOfWarGameController
 
 
 class ControllerStorageTestCase(TestCase):
     storage_class = ControllerStorage
-    controller_class = SingleGameController
+    controller_class = GameController
 
     def setUp(self):
         self.session_record = GameSession.objects.create()
@@ -1559,7 +1549,7 @@ class ControllerStorageTestCase(TestCase):
         )
         self.session_record.refresh_from_db()
 
-        self.assertTrue(issubclass(controller.__class__, BaseGameController))
+        self.assertIsInstance(controller, GameController)
         self.assertEqual(controller._session, self.session_record)
 
     def test_get_session_reuses_controller(self):

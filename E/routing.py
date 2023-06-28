@@ -15,7 +15,7 @@ application = ProtocolTypeRouter({
         URLRouter([
             path(
                 "ws/play/<str:session_id>/",
-                consumers.GameConsumer,
+                consumers.GameConsumer.as_asgi(),
                 ),
             ])
         ),

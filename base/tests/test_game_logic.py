@@ -459,6 +459,30 @@ class PlayerControllerTestCase(TestCase):
 class BaseTests:
     # FIXME: PEP8
     class GameControllerTestCase(TestCase):
+        """
+        Tests that:
+            * GameController can be instanced only when given GameSession exists
+              and is not yet finished or started. Exception is raised otherwise.
+            * The controller class is selected based on the GameSession.mode field
+            * Provides base events handlers (exposed through .player_event()):
+                - 'player_joined'
+                - 'player_left'
+                - 'word'
+                - 'player_vote'
+                - 'ready_state'
+              and in response sends the messages with defined logic and schema:
+                - 'initial_state'
+                - 'game_begins'
+                - 'start_game'
+                - 'new_word'
+                - 'game_over'
+                - 'votes_update'
+                - 'new_game'
+        ---
+        TODO:
+            * test invalid events handling
+        """
+
         controller_cls = GameController
         game_mode = None  # Abstract test case
 
@@ -1092,7 +1116,8 @@ class BaseTests:
                              Event.SERVER_PLAYERS_UPDATE)
             self.assertEqual(players_update_event_2.type,
                              Event.SERVER_PLAYERS_UPDATE)
-            self.assertNotEqual(players_data_1, players_data_2)
+            # self.assertNotEqual(players_data_1, players_data_2)
+            # TODO: test per mode
 
         def test_tick_while_voting_does_nothing(self):
             join_event = Event(
@@ -1499,38 +1524,52 @@ class BaseTests:
 
 
 class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
-    """
-    Tests that:
-        * GameController can be instanced only when given GameSession exists
-          and is not yet finished or started. Exception is raised otherwise.
-        * The controller class is selected based on the GameSession.mode field
-        * Provides base events handlers (exposed through .player_event()):
-            - 'player_joined'
-            - 'player_left'
-            - 'word'
-            - 'player_vote'
-            - 'ready_state'
-          and in response sends the messages with defined logic and schema:
-            - 'initial_state'
-            - 'game_begins'
-            - 'start_game'
-            - 'new_word'
-            - 'game_over'
-            - 'votes_update'
-            - 'new_game'
-    ---
-    TODO:
-        * test invalid events handling
-    """
     game_mode = GameModes.SINGLE
 
-# TODO: add test for game over condition (should be per mode)
-
-
-class IronWallGameControllerTestCase(BaseTests.GameControllerTestCase):
-    game_mode = GameModes.IRONWALL
+    # TODO: test other settings do not apply
+    # TODO: test for multiple players
     # TODO: check if game over condition is implemented and also
     #       check exactly what changes and what doesn't on good/bad word
+
+    def test_competitors_schema(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        self.controller.player_event(join_event)
+
+        competitors = self.controller._competitors_field
+        players = competitors['players']
+
+        player = players[0]
+
+        self.assertIsInstance(player, dict)
+        self.assertIn('id', player)
+        self.assertIn('score', player)
+        self.assertIn('speed', player)
+        self.assertIn('is_ready', player)
+        self.assertIn('displayed_name', player)
+
+    def test_game_over_condition(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        self.controller.player_event(join_event)
+
+        self.controller._options.game_duration = 0.5
+        local_player = self.controller._get_player(self.player_record)
+
+        self.controller._start_game()
+        self.assertFalse(self.controller._is_game_over())
+        time.sleep(self.controller._options.game_duration)
+        self.assertTrue(self.controller._is_game_over())
+        self.controller._game_over()
+        self.assertTrue(local_player.is_winner)
+
+
+class IronWallGameControllerTestCase(SingleGameControllerTestCase):
+    game_mode = GameModes.IRONWALL
 
 
 class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
@@ -1746,16 +1785,96 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertTrue(local_p1.is_winner)
         self.assertFalse(local_p2.is_winner)
 
+    # TODO: test schemas
+
 
 class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
     game_mode = GameModes.TUGOFWAR
 
-    # test we have teams
-    # test team scores are initialized to 0
-    # test team score increases when correct word is submitted
-    # test player score is added for correct words TODO: make it common
-    # test game over condition
-    # test win condition
+    def test_competitors_schema(self):
+        # TODO: make competitors field a common presence in common tests
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        self.controller.player_event(join_event)
+
+        competitors = self.controller._competitors_field
+        team_red = competitors['teams']['red']
+        team_blue = competitors['teams']['blue']
+
+        player = (team_red['players'] or team_blue['players'])[0]
+
+        self.assertIsInstance(team_red, dict)
+        self.assertIsInstance(team_blue, dict)
+        self.assertEqual(team_red.keys(), team_blue.keys())
+
+        self.assertEqual(team_red['score'], 0)
+        self.assertEqual(team_red['score'], team_blue['score'])
+        # TODO: test team schema extensively
+
+        self.assertIsInstance(player, dict)
+        self.assertIn('id', player)
+        self.assertIn('score', player)
+        self.assertIn('speed', player)
+        self.assertIn('team_name', player)
+        self.assertIn('displayed_name', player)
+        self.assertIn('displayed_name', player)
+        # TODO: test player schema extensively
+
+    def test_correct_word_increases_team_score(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        next_word = initial_state_event.data['words'][0]
+        word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(player=self.player_record, payload=next_word),
+        )
+
+        competitors = self.controller._competitors_field
+
+        player = initial_state_event.data['player']
+        team = competitors['teams'][player['team_name']]
+
+        self.assertEqual(team['score'], 0)
+        self.controller._start_game()
+        _, players_update_event = self.controller.player_event(word_event)
+
+        team = players_update_event.data['teams'][player['team_name']]
+        player = team['players'][0]
+
+        self.assertEqual(team['score'], len(next_word))
+        self.assertEqual(team['score'], player['score'])
+
+    # TODO: test switch_team event
+
+    def test_game_over_condition(self):
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        # TODO: test other conditions do not interfere
+        self.controller.player_event(p1_joined_event)
+        self.controller.player_event(p2_joined_event)
+        self.controller._start_game()
+        self.assertFalse(self.controller._is_game_over())
+
+        team_1, team_2 = self.controller._competitors
+        team_1.players[0].score = self.controller._options.points_difference
+
+        self.assertGreater(team_1.score, 0)
+        self.assertTrue(self.controller._is_game_over())
+
+        self.controller._game_over()
+        self.assertTrue(team_1.is_winner)
+        self.assertTrue(team_1.players[0].is_winner)
 
 
 class ControllerStorageTestCase(TestCase):

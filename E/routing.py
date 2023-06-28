@@ -20,6 +20,6 @@ application = ProtocolTypeRouter({
             ])
         ),
     "channel": ChannelNameRouter({
-        "game-tick": consumers.GameTickConsumer,
+        "game-tick": consumers.GameTickConsumer.as_asgi(),
         }),
 })

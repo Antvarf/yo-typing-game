@@ -224,7 +224,7 @@ class GameConsumer(JsonWebsocketConsumer):
 class GameTickConsumer(SyncConsumer):
     def game_tick(self, message):
         async_to_sync(self.channel_layer.group_send)(
-            "session_hosts",
+            settings.HOSTS_LAYER_NAME,
             {
                 "type": "session.tick",
             },

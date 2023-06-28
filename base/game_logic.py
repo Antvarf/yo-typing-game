@@ -867,7 +867,7 @@ class GameController:
                     p.time_left = game_duration
 
         if self._options.points_difference:
-            # TODO: implement init for tugofwar
+            # TODO: can't start with less than two competitors
             pass
 
     def _game_over(self) -> Event:
@@ -924,8 +924,16 @@ class GameController:
                 return True
 
         if self._options.points_difference:
-            # TODO: implement points_difference option
-            raise NotImplementedError
+            scores = set(c.score for c in self._competitors)
+            if scores:
+                top_score = max(scores)
+                scores.remove(top_score)
+            if scores:
+                second_top_score = max(scores)
+                points_difference = top_score - second_top_score
+                if points_difference >= self._options.points_difference:
+                    return True
+                # TODO: test for the case when one competitor remains
         return False
 
     def _create_new_game(self) -> Event:

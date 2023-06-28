@@ -10,6 +10,7 @@ from channels.testing import WebsocketCommunicator
 from django.urls import path
 
 from E.auth import JWTAuthMiddleware
+from E.routing import application
 from base.consumers import GameConsumer
 from base.game_logic import Event
 from base.helpers import get_tokens_for_user
@@ -36,12 +37,7 @@ class GameConsumerTestCase(TestCase):
     def setUp(self):
         self.session_record = GameSession.objects.create()
         self.other_session_record = GameSession.objects.create()
-        self.application = JWTAuthMiddleware(
-            URLRouter([
-                path('ws/play/<str:session_id>/',
-                     self.consumer_cls.as_asgi()),
-            ]),
-        )
+        self.application = application
 
     def get_communicator(self, session_id: str = None, **kwargs):
         params = urllib.parse.urlencode(kwargs)

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import random
 import secrets
-from abc import ABC, abstractmethod
 from collections import Counter
-from dataclasses import dataclass, asdict, InitVar, field
+from dataclasses import dataclass, asdict, InitVar
 import typing
 from functools import cached_property
 
@@ -162,6 +161,7 @@ class WordListProvider:
 @dataclass
 class LocalPlayer:
     player: InitVar[Player]
+    words: InitVar[list[str]]
 
     id: int = None
     displayed_name: str = None
@@ -172,26 +172,21 @@ class LocalPlayer:
     is_finished: bool = False
     is_out: bool = False
     team_name: str = None
+    correct_words: int = 0
+    incorrect_words: int = 0
+    mistake_ratio: float = 0.0
+    is_winner: bool = None
 
-    def __post_init__(self, player: Player):
+    def __post_init__(self, player: Player, words: list[str]):
         self.id = player.pk
         self.displayed_name = player.displayed_name
         self.old_displayed_name = None
         self.db_record = player
         self.total_word_length = 0
-        self.correct_words = 0
-        self.incorrect_words = 0
-        self.mistake_ratio = 0.0
-        self.is_winner = None
         self.voted_for = None
-        self._next_word = None
-
-    def add_word_iterator(self, words: list[str]):
         self._next_word = iter(words)
 
-    def get_next_word(self) -> str | None:
-        if self._next_word is None:
-            return
+    def get_next_word(self) -> str:
         return next(self._next_word)
 
     def to_dict(self) -> dict:
@@ -220,11 +215,9 @@ class LocalTeam:
     players: list
     score: int
     speed: float
-    time_left: float
     is_finished: bool
     is_out: bool
-
-    _players: dict
+    time_left: float = None
 
     def __init__(self):
         self._players = dict()
@@ -250,16 +243,24 @@ class LocalTeam:
             return sum(p.speed for p in self.players) / player_count
 
     @property
-    def time_left(self):
-        return sum(p.time_left for p in self.players)
-
-    @property
     def is_finished(self):
         return all(p.is_finished for p in self.players)
 
     @property
     def is_out(self):
         return all(p.is_out for p in self.players)
+
+    @property
+    def is_winner(self) -> bool:
+        # TODO: test it
+        return any(p.is_winner for p in self.players)
+
+    @is_winner.setter
+    def is_winner(self, value: bool):
+        if type(value) is not bool:
+            raise TypeError('`is_winner` is expected to be boolean')
+        for p in self.players:
+            p.is_winner = value
 
 
 @dataclass
@@ -271,6 +272,19 @@ class GameOptions:
     game_duration: int = 60
     win_condition: str = WIN_CONDITION_BEST_SCORE
     team_mode: bool = False
+    # TODO: test defaults here
+    speed_up_percent: float = 100.0
+    points_difference: int = 0
+    time_per_word: float = 0.0
+    strict_mode: bool = False
+
+
+def updates_db(f):
+    def wrapper(self, *args, **kwargs):
+        result = f(self, *args, **kwargs)
+        self._perform_database_update()
+        return result
+    return wrapper
 
 
 @dataclass(init=False)
@@ -278,7 +292,7 @@ class PlayerController:
     players: list[LocalPlayer]
     teams: dict[str, LocalTeam]
 
-    def __init__(self, session: GameSession,
+    def __init__(self, session: GameSession, words: list[str],
                  options: GameOptions = GameOptions()):
         self.session = session
         self.ready_count = 0
@@ -290,26 +304,46 @@ class PlayerController:
             self.teams = dict()
             self.team_red = self.teams['red'] = LocalTeam()
             self.team_blue = self.teams['blue'] = LocalTeam()
+        self._factory = self._get_dataclass_factory()
+        self._results_factory = self._get_dataclass_factory(
+            add_extra_stats=True,
+        )
+        self._unique_displayed_names = set()
+        self._words = words
 
+    def _get_dataclass_factory(self, add_extra_stats=False):
         self_fields_included = []
-        player_fields_included = ['id', 'displayed_name', 'score',
-                                  'speed', 'time_left', 'is_ready']
-        team_fields_included = ['players', 'score', 'speed', 'time_left']
+        player_fields_included = ['id', 'displayed_name',
+                                  'score', 'speed', 'is_ready']
+        team_fields_included = ['players', 'score', 'speed']
 
         if self._options.team_mode:
             self_fields_included.append('teams')
             player_fields_included.append('team_name')
+            if self._options.game_duration:
+                team_fields_included.append('time_left')
         else:
             self_fields_included.append('players')
+            if self._options.game_duration:
+                player_fields_included.append('time_left')
+
         if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
             player_fields_included.append('is_out')
             team_fields_included.append('is_out')
+
+        if add_extra_stats:
+            player_fields_included.extend([
+                'correct_words',
+                'incorrect_words',
+                'mistake_ratio',
+                'is_winner',
+            ])
 
         self_schema = dataclass_factory.Schema(only=self_fields_included)
         player_schema = dataclass_factory.Schema(only=player_fields_included)
         team_schema = dataclass_factory.Schema(only=team_fields_included)
         # TODO: add is_finished param
-        self._factory = dataclass_factory.Factory(
+        return dataclass_factory.Factory(
             schemas={
                 PlayerController: self_schema,
                 LocalPlayer: player_schema,
@@ -318,11 +352,11 @@ class PlayerController:
         )
 
     @property
-    def players(self):
+    def players(self) -> list[LocalPlayer]:
         return list(self._players.values())
 
     @property
-    def player_count(self):
+    def player_count(self) -> int:
         return len(self._players)
 
     @property
@@ -331,23 +365,16 @@ class PlayerController:
                           for p in self._players.values() if p.voted_for])
         return _votes
 
-    @staticmethod
-    def updates_db(f):
-        def wrapper(self, *args, **kwargs):
-            result = f(self, *args, **kwargs)
-            self._perform_database_update()
-            return result
-        return wrapper
-
     @updates_db
-    def add_player(self, player: Player):
+    def add_player(self, player: Player) -> LocalPlayer:
         if player.pk in self._players:
-            return
+            return self.get_player(player)
         if self.session.players_max \
            and self.player_count >= self.session.players_max:
             raise PlayerJoinRefusedError('Max players limit was reached')
 
-        local_player = self._init_local_player(player)
+        local_player = self._init_local_player(player, self._words)
+        self._add_to_unique_displayed_names(local_player)
         self._players[player.pk] = local_player
 
         if self._options.team_mode:
@@ -359,8 +386,16 @@ class PlayerController:
                 team = self.team_blue
             team.add_player(local_player)
 
-    def get_player(self, player: Player) -> LocalPlayer:
-        return self._players[player.pk]
+        return local_player
+
+    def get_player(self, player: Player = None) -> LocalPlayer | None:
+        # TODO: test empty player argument
+        local_player = None
+        if player is not None:
+            local_player = self._players[player.pk]
+        elif self._players.values():
+            local_player = random.choice(list(self._players.values()))
+        return local_player
 
     @updates_db
     def remove_player(self, player: Player):
@@ -369,6 +404,7 @@ class PlayerController:
             self.ready_count -= 1
         if local_player.voted_for is not None:
             self.voted_count -= 1
+        self._remove_from_unique_displayed_names(local_player)
 
         if self._options.team_mode:
             team = self.teams[local_player.team]
@@ -401,8 +437,10 @@ class PlayerController:
             team_obj.add_player(local_player)
             local_player.team_name = team
 
-    def to_dict(self):
-        return self._factory.dump(self)
+    def to_dict(self, include_results=False):
+        # TODO: add tests for to_dict with results
+        factory = self._results_factory if include_results else self._factory
+        return factory.dump(self)
 
     def _perform_database_update(self):
         self._update_session_record()
@@ -411,309 +449,35 @@ class PlayerController:
         self.session.players_now = self.player_count
         self.session.save()
 
-    def _init_local_player(self, player: Player):
+    @staticmethod
+    def _init_local_player(player: Player, words: list[str]):
         local_player = LocalPlayer(
             player,
-            time_left=self._options.game_duration,
+            words=words,
         )
         return local_player
 
-
-class BasePlayerController(ABC):
-    """
-    A class responsible for:
-        * tracking last local player id added
-        * updating player scores when word is submitted
-        * maintaining players representation for display
-        * updating player related fields on session record
-    """
-    def __init__(self, session: GameSession, settings=None):
-        self._displayed_names = set()
-        self._players_dict = {}
-        self._players_repr = self._init_repr()
-        self._ready_count = 0
-        self._voted_count = 0
-        self._last_tick = None
-        self.settings = settings
-        self.session = session
-
-    def add_player(self, player: LocalPlayer):
-        self.add_to_unique_displayed_names(player)
-        self._players_dict[player.id] = player
-        self._insert_into_repr(player)
-        self._perform_database_update(self.session, player)
-
-    def get_player(self, player_id: int = None) -> LocalPlayer | None:
-        if player_id is None:
-            # get any player (this is so awfully bad)
-            id_list = list(self._players_dict.keys()
-                           or (None,))
-            player_id = id_list.pop()
-        return self._players_dict.get(player_id, None)
-
-    def remove_player(self, player_id: int):
-        if player_id in self._players_dict:
-            player = self._players_dict.pop(player_id)
-            if player.is_ready:
-                self._ready_count -= 1
-            if player.voted_for is not None:
-                self._voted_count -= 1
-            self._remove_from_repr(player)
-            self.remove_from_unique_displayed_names(player)
-            self._perform_database_update(self.session, player)
-
-    def handle_word(self, player_id: int, word: str):
-        player_obj = self.get_player(player_id)
-        self._handle_word(player_obj, word)
-        self._update_repr_from_object(player_obj)
-
-    @property
-    def players_data(self):
-        return self._players_repr
-
-    @property
-    def players_full_data(self):
-        return [player.to_results_dict() for player in self._players_dict.values()]
-
-    @property
-    def player_count(self):
-        return len(self._players_dict)
-
-    @property
-    def ready_count(self):
-        return self._ready_count
-
-    @property
-    def voted_count(self):
-        return self._voted_count
-
-    @property
-    def votes(self) -> Counter:
-        counts = Counter(v.voted_for
-                         for v in self._players_dict.values() if v.voted_for)
-        return counts
-    
-    def add_to_unique_displayed_names(self, player: LocalPlayer):
+    def _add_to_unique_displayed_names(self, player: LocalPlayer):
         new_displayed_name = \
             player.old_displayed_name = player.displayed_name
-        while new_displayed_name in self._displayed_names:
+        while new_displayed_name in self._unique_displayed_names:
             tag = secrets.token_urlsafe(3)
             new_displayed_name = f'{player.displayed_name}#{tag}'
         player.displayed_name = new_displayed_name
-        self._displayed_names.add(player.displayed_name)
-        return
+        self._unique_displayed_names.add(player.displayed_name)
 
-    def remove_from_unique_displayed_names(self, player: LocalPlayer):
-        self._displayed_names.remove(player.displayed_name)
+    def _remove_from_unique_displayed_names(self, player: LocalPlayer):
+        self._unique_displayed_names.remove(player.displayed_name)
         player.displayed_name = player.old_displayed_name
-        return
-
-    def set_ready_state(self, id: int, state: bool):
-        """
-        Updates player's ready state and the ready_count counter accordingly
-        """
-        player = self.get_player(id)
-        if player is not None and player.is_ready != state:
-            player.is_ready = state
-            self._ready_count += 1 if state else -1
-        return
-
-    def set_player_vote(self, id: int, mode: str):
-        """
-        Updates players vote and the voted_count counter accordingly
-        """
-        player = self.get_player(id)
-        if player is not None and mode in GameModes.labels:
-            if player.voted_for is None:
-                self._voted_count += 1
-            player.voted_for = mode
-        return
-
-    def set_time_left(self, id: int, time_left: float):
-        """
-        Sets the players .time_left field to :time_left:
-        """
-        player = self.get_player(id)
-        if player is not None:
-            player.time_left = time_left
-            self._update_repr_from_object(player)
-        return
-
-    @property
-    def time_elapsed(self) -> int:
-        if self.session.started_at is None:
-            return 0
-        delta = self.session.started_at - timezone.now()
-        return delta.total_seconds() + 1
-
-    def _perform_database_update(self, session: GameSession, player: LocalPlayer):
-        self._update_session_record(session)
-        self._update_player_record(player)
-
-    def _update_session_record(self, session: GameSession):
-        session.players_now = self.player_count
-        session.save()
-
-    def _update_player_record(self, player: LocalPlayer):
-        player.db_record.displayed_name = player.displayed_name
-        player.db_record.save()
-
-    @abstractmethod
-    def _init_repr(self):
-        pass
-
-    @abstractmethod
-    def _insert_into_repr(self, player):
-        pass
-
-    @abstractmethod
-    def _remove_from_repr(self, player):
-        pass
-
-    @abstractmethod
-    def _handle_word(self, player: LocalPlayer, word: str):
-        pass
-
-    @abstractmethod
-    def _update_repr_from_object(self, player):
-        pass
-
-    @abstractmethod
-    def make_tick(self):
-        pass
 
 
-class PlayerPlainController(BasePlayerController):
-    def _init_repr(self):
-        return dict()
-
-    def _insert_into_repr(self, player):
-        self._players_repr[player.id] = asdict(player)
-
-    def _remove_from_repr(self, player):
-        self._players_repr.pop(player.id)
-
-    def _update_repr_from_object(self, player):
-        self._players_repr[player.id].update(asdict(player))
-
-    def _handle_word(self, player: LocalPlayer, word: str):
-        if player.get_next_word() == word:
-            player.score += len(word)
-            player.correct_words += 1
-        else:
-            player.incorrect_words += 1
-        player.total_word_length += len(word)
-        player.speed = player.total_word_length / self.time_elapsed
-        return player
-
-    def make_tick(self):
-        prev_tick = self._last_tick or self.session.started_at
-        self._last_tick = timezone.now()
-        time_delta = self._last_tick - prev_tick
-
-        for player in self._players_dict.values():
-            player.time_left -= time_delta.total_seconds()
-            self._update_repr_from_object(player)
-
-
-class PlayerEndlessController(PlayerPlainController):
-    def _handle_word(self, player: LocalPlayer, word: str):
-        if player.get_next_word() == word:
-            player.time_left = max(player.time_left+len(word),
-                                   self.settings['game_duration'])
-            player.score += len(word)
-            player.correct_words += 1
-        else:
-            player.incorrect_words += 1
-        player.total_word_length += len(word)
-        player.speed = player.total_word_length / self.time_elapsed
-        return player
-
-
-class PlayerTugOfWarController(BasePlayerController):
-    TEAM_RED_NAME = 'red'
-    TEAM_BLUE_NAME = 'blue'
-    TICKET_POOL = 100
-
-    def _init_repr(self):
-        teams = {
-            self.TEAM_RED_NAME: {
-                'players': dict(),
-                'tickets': self.TICKET_POOL // 2,
-            },
-            self.TEAM_BLUE_NAME: {
-                'players': dict(),
-                'tickets': self.TICKET_POOL // 2,
-            },
-        }
-        self.team_red_repr = teams[self.TEAM_RED_NAME]
-        self.team_blue_repr = teams[self.TEAM_BLUE_NAME]
-        self.team_red_players = self.team_red_repr['players']
-        self.team_blue_players = self.team_blue_repr['players']
-        return teams
-
-    def _insert_into_repr(self, player: LocalPlayer):
-        if player.id in self.team_red_players \
-                or player.id in self.team_blue_players:
-            return
-        if len(self.team_red_players) <= len(self.team_blue_players):
-            self.team_red_players[player.id] = player.to_dict()
-            player.team = self.TEAM_RED_NAME
-        else:
-            self.team_blue_players[player.id] = player.to_dict()
-            player.team = self.TEAM_BLUE_NAME
-
-    def _remove_from_repr(self, player):
-        if player.team == self.TEAM_BLUE_NAME:
-            self.team_blue_players.pop(player.id, None)
-        elif player.team == self.TEAM_RED_NAME:
-            self.team_red_players.pop(player.id, None)
-
-    def _handle_word(self, player: LocalPlayer, word: str):
-        if player.team == self.TEAM_BLUE_NAME:
-            if player.id in self.team_blue_repr:
-                if player.get_next_word() == word:
-                    self.team_red_repr['tickets'] = max(
-                        self.team_red_repr['tickets'] + len(word),
-                        self.TICKET_POOL,
-                    )
-                    self.team_blue_repr['tickets'] = min(
-                        self.team_blue_repr['tickets'] - len(word),
-                        0,
-                    )
-        elif player.team == self.TEAM_RED_NAME:
-            if player.id in self.team_red_repr:
-                if player.get_next_word() == word:
-                    self.team_blue_repr['tickets'] = max(
-                        self.team_blue_repr['tickets'] + len(word),
-                        self.TICKET_POOL,
-                    )
-                    self.team_red_repr['tickets'] = min(
-                        self.team_red_repr['tickets'] - len(word),
-                        0,
-                    )
-        self._update_repr_from_object(player)
-
-    def _update_repr_from_object(self, player):
-        if player.team == self.TEAM_BLUE_NAME:
-            if player.id in self.team_blue_repr:
-                self.team_blue_repr[player.id].update(player.to_dict())
-        elif player.team == self.TEAM_RED_NAME:
-            if player.id in self.team_red_repr:
-                self.team_red_repr[player.id].update(player.to_dict())
-
-    def make_tick(self):
-        pass
-
-
-class BaseGameController(ABC):
+class GameController:
     STATE_PREPARING = 'preparing'
     STATE_PLAYING = 'playing'
     STATE_VOTING = 'voting'
 
     word_provider_class = WordListProvider
-    player_controller_class = PlayerPlainController
-    player_class = LocalPlayer
+    player_controller_class = PlayerController
 
     START_GAME_DELAY = 0
     GAME_DURATION_SEC = None
@@ -724,18 +488,23 @@ class BaseGameController(ABC):
             raise GameOverError
 
         self._state = self.STATE_PREPARING
+        self._options = self._init_options()
+        self._word_provider = self.word_provider_class()
         self._player_controller = self.player_controller_class(
-            self._session,
-            settings={'game_duration': self.GAME_DURATION_SEC},
+            session=self._session,
+            options=self._options,
+            words=self._word_provider.words,
         )
         self._event_handlers = self._init_event_handlers()
-        self._word_provider = self.word_provider_class()
         self._modes_available = GameModes.labels
         self._game_begins_at = None
+        self._last_tick = None
 
         self._host_id = None
 
     def player_event(self, event: Event) -> list[Event]:
+        if type(event) is not Event:
+            raise TypeError('`event` is expected to be of type `Event`')
         if not event.is_valid():
             raise InvalidMessageError
         handler = self._get_event_handler(event.type)
@@ -752,14 +521,6 @@ class BaseGameController(ABC):
         if not self._player_exists(new_host):
             raise ValueError(f'player {new_host} is not in session')
         self._host_id = new_host.pk
-
-    @property
-    def _players(self):
-        return self._player_controller.players_data
-
-    @property
-    def _players_with_stats(self):
-        return self._player_controller.players_full_data
 
     def _init_event_handlers(self):
         event_handlers = {
@@ -803,16 +564,16 @@ class BaseGameController(ABC):
             if self._is_host(player):
                 events.append(self._set_new_host())
             events.append(self._get_players_update_event())
-            if not self._player_count and self._state is self.STATE_PLAYING:
-                events.append(self._game_over())
             if self._can_start():
                 game_begins_event = self._get_game_begins_event()
                 events.append(game_begins_event)
-                if self.START_GAME_DELAY <= 0:
+                if self.START_GAME_DELAY <= 0: # TODO: add delay to GameOptions
                     start_game_event = self._start_game()
                     events.append(start_game_event)
                 else:
                     self._stage_start_game(self.START_GAME_DELAY)
+            if not self._player_count and self._state is self.STATE_PLAYING:
+                events.append(self._game_over())
             if self._is_voting_finished():
                 events.append(self._create_new_game())
         return events
@@ -840,7 +601,21 @@ class BaseGameController(ABC):
     def _handle_word(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is self.STATE_PLAYING:
-            self._player_controller.handle_word(player.pk, payload)
+            local_player = self._player_controller.get_player(player)
+            if payload == local_player.get_next_word():
+                word_length = len(payload)
+                local_player.score += word_length
+                if self._options.time_per_word:
+                    bonus_time = self._options.time_per_word * word_length
+                    if self._options.team_mode:
+                        competitor = self._player_controller.teams[local_player.team_name]
+                    else:
+                        competitor = local_player
+                    competitor.time_left = min(
+                        float(self._options.game_duration),
+                        competitor.time_left + bonus_time,
+                    )
+            # TODO: check for game_over condition
             events.append(self._get_new_word_event())
             events.append(self._get_players_update_event())
         return events
@@ -859,7 +634,15 @@ class BaseGameController(ABC):
             if self._is_game_over():
                 events.append(self._game_over())
             else:
-                self._player_controller.make_tick()
+                if self._options.game_duration:
+                    prev_tick = self._last_tick or self._session.started_at
+                    self._last_tick = timezone.now()
+                    time_delta = self._last_tick - prev_tick
+
+                    for c in self._competitors:
+                        # TODO: implement speed_up_percent setting
+                        c.time_left -= time_delta.total_seconds()
+
                 events.append(self._get_players_update_event())
 
         elif self._state is self.STATE_VOTING:
@@ -927,22 +710,55 @@ class BaseGameController(ABC):
                       data=self._new_session_id)
         return event
 
-    def _init_player(self, player: Player):
-        player_obj = self.player_class(player)
-        player_obj.add_word_iterator(self._word_provider.words)
-        return player_obj
+    def _init_options(self) -> GameOptions:
+        options = GameOptions()
+        if self._session.mode == GameModes.SINGLE:
+            pass
+        elif self._session.mode == GameModes.IRONWALL:
+            options.strict_mode = True
+        elif self._session.mode == GameModes.ENDLESS:
+            options.game_duration = 30
+            options.win_condition = GameOptions.WIN_CONDITION_SURVIVED
+            options.speed_up_percent = 140
+        elif self._session.mode == GameModes.TUGOFWAR:
+            options.game_duration = 0
+            options.team_mode = True
+            options.points_difference = 50
+        return options
 
     def _add_player(self, player: Player) -> LocalPlayer:
-        player_obj = self._init_player(player)
-        self._player_controller.add_player(player_obj)
-        # TODO: don't rely on object modification
-        return player_obj
+        local_player = self._player_controller.add_player(player)
+        return local_player
 
     def _remove_player(self, player: Player):
-        self._player_controller.remove_player(player.pk)
+        self._player_controller.remove_player(player)
 
-    def _get_player(self, player: Player) -> LocalPlayer | None:
-        return self._player_controller.get_player(player.pk)
+    def _get_player(self, player: Player) -> LocalPlayer:
+        return self._player_controller.get_player(player)
+
+    @property
+    def _players(self):
+        return self._player_controller.to_dict()
+
+    @property
+    def _players_with_results(self) -> list[dict]:
+        serialized = self._player_controller.to_dict(include_results=True)
+        if self._options.team_mode:
+            teams = serialized['teams']
+            players = [player
+                       for team in teams.values()
+                       for player in team['players']]
+        else:
+            players = serialized['players']
+        return players
+
+    @property
+    def _competitors(self):
+        if self._options.team_mode:
+            competitors = list(self._player_controller.teams.values())
+        else:
+            competitors = self._player_controller.players
+        return competitors
 
     def _can_start(self) -> bool:
         if self._state is not self.STATE_PREPARING:
@@ -974,7 +790,12 @@ class BaseGameController(ABC):
         """
         Checks if player with given player record is present in the session
         """
-        return bool(self._get_player(player) is not None)
+        try:
+            self._get_player(player)
+        except KeyError:
+            return False
+        else:
+            return True
 
     def _is_host(self, player: Player):
         if self._host_id is None:
@@ -982,8 +803,6 @@ class BaseGameController(ABC):
         return self._host_id == player.pk
 
     def _set_new_host(self) -> Event:
-        # TODO: at this point I have to finally snap, player control flow needs
-        #       to be refactored (and covered with tests)
         new_host = self._player_controller.get_player()
         self._host_id = new_host and new_host.id
         event = Event(type=Event.SERVER_NEW_HOST,
@@ -991,10 +810,10 @@ class BaseGameController(ABC):
         return event
 
     def _set_ready_state(self, player: Player, state: bool):
-        self._player_controller.set_ready_state(player.pk, state)
+        self._player_controller.set_ready_state(player, state)
 
     def _set_player_vote(self, player: Player, mode: str):
-        self._player_controller.set_player_vote(player.pk, mode)
+        self._player_controller.set_player_vote(player, mode)
 
     @property
     def _player_count(self) -> int:
@@ -1012,7 +831,6 @@ class BaseGameController(ABC):
         Updates controller and database record state to STATE_PLAYING.
 
         NOTE: this function is used heavily in unit tests to alter game state.
-        TODO: test me (please!)
         """
         self._state = self.STATE_PLAYING
         self._session.start_game()
@@ -1023,35 +841,71 @@ class BaseGameController(ABC):
                       type=Event.SERVER_START_GAME, data={})
         return event
 
+    def _post_start(self):
+        if self._options.game_duration:
+            game_duration = self._options.game_duration
+            offset = timezone.timedelta(seconds=game_duration)
+            self._game_ends_at = self._session.started_at + offset
+            if self._options.team_mode:
+                for t in self._player_controller.teams.values():
+                    t.time_left = game_duration
+            else:
+                for p in self._player_controller.players:
+                    p.time_left = game_duration
+
+        if self._options.points_difference:
+            # TODO: implement init for tugofwar
+            pass
+
     def _game_over(self) -> Event:
         """
         Updates controller and database record state to STATE_VOTING.
 
         NOTE: this function is used heavily in unit tests to alter game state.
-        TODO: test me (please!)
         """
         self._state = self.STATE_VOTING
         self._session.game_over()
+        self._mark_winners()
         self._session.save_results(self.results)
-        # TODO: rename .save_results() to .end_game() for readability
 
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_GAME_OVER, data=self.results)
         return event
 
-    @abstractmethod
-    def _post_start(self):
-        # TODO: reimplement it using decorators?
-        pass
+    def _mark_winners(self):
+        if not self._competitors:
+            return
+        if self._options.win_condition == GameOptions.WIN_CONDITION_BEST_SCORE:
+            max_score = max(c.score for c in self._competitors)
+            for competitor in self._competitors:
+                if competitor.score == max_score:
+                    competitor.is_winner = True
+                else:
+                    competitor.is_winner = False
+        if self._options.win_condition == GameOptions.WIN_CONDITION_BEST_TIME:
+            max_time_left = max(c.time_left for c in self._competitors)
+            for competitor in self._competitors:
+                if competitor.time_left == max_time_left:
+                    competitor.is_winner = True
+                else:
+                    competitor.is_winner = False
+        if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
+            for competitor in self._competitors:
+                competitor.is_winner = not competitor.is_out
+        # TODO: cover with tests
 
-    @abstractmethod
+    @cached_property
+    def results(self) -> list[dict]:
+        return self._players_with_results
+
     def _is_game_over(self) -> bool:
-        pass
-
-    @property
-    @abstractmethod
-    def results(self):
-        pass
+        if self._options.game_duration:
+            if self._game_ends_at <= timezone.now():
+                return True
+        if self._options.points_difference:
+            # TODO: implement points_difference option
+            raise NotImplementedError
+        return False
 
     def _create_new_game(self) -> Event:
         """A function that creates a game with the same settings as current"""
@@ -1072,56 +926,8 @@ class BaseGameController(ABC):
         return event
 
 
-class SingleGameController(BaseGameController):
-    GAME_DURATION_SEC = 60
-
-    @property
-    def results(self) -> list[dict]:
-        players = self._players_with_stats
-        max_score = max([p['score'] for p in players], default=None)
-        for p in players:
-            p.update({'is_winner': p['score'] == max_score})
-        return players
-
-    def _post_start(self):
-        offset = timezone.timedelta(seconds=self.GAME_DURATION_SEC)
-        for p in self._players:
-            self._player_controller.set_time_left(p, self.GAME_DURATION_SEC)
-        self._game_ends_at = self._session.started_at + offset
-
-    def _is_game_over(self) -> bool:
-        if self._state is not self.STATE_PLAYING:
-            return False
-        return self._game_ends_at <= timezone.now()
-
-
-class EndlessGameController(SingleGameController):
-    GAME_DURATION_SEC = 30
-    player_controller_class = PlayerEndlessController
-
-
-class TugOfWarGameController(SingleGameController):
-    # add custom message handler
-    GAME_DURATION_SEC = 0
-    player_controller_class = PlayerTugOfWarController
-
-    def get_extending_event_handlers(self):
-        handlers = {
-            Event.PLAYER_SWITCH_TEAM: self._handle_switch_team,
-        }
-        return handlers
-
-    def _handle_switch_team(self, player, payload):
-        events = []
-        if self._state is self.STATE_PREPARING:
-            player_obj = self._get_player(player)
-            if player_obj['team'] != payload:
-                self._player_controller.switch_team(player_obj, payload)
-                events.append(self._get_players_update_event())
-        return events
-
-    def _is_game_over(self) -> bool:
-        for team in self._players.values():
-            if 100 <= team['tickets'] <= 0:
-                return True
-        return False
+# FIXME: get rid of this hack by updating every workstation python ver to 3.10
+# Issue discussed at --
+# https://stackoverflow.com/questions/70400639/
+# /how-do-i-get-python-dataclass-initvar-fields-to-work-with-typing-get-type-hints
+InitVar.__call__ = lambda *args: None

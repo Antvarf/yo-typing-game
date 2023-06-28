@@ -10,57 +10,35 @@ from channels.testing import WebsocketCommunicator
 from django.urls import path
 
 from E.auth import JWTAuthMiddleware
-from base.consumers import SingleGameConsumer, BaseGameConsumer
+from base.consumers import GameConsumer
 from base.game_logic import Event
 from base.helpers import get_tokens_for_user
 from base.models import GameSession, Player
 
 
-class BaseGameConsumerTestCase(TestCase):
-    """
-    This class contains tests for logic common for all consumers:
-      * User identification
-      * Session controller creation
-      * Common message interactions and structure
-    """
-    pass
-    # communicator = WebsocketCommunicator(SingleGameConsumer.as_asgi(), path='')
-
-    # User identification logic
-    # def test_username_query_param(self):
-    #     raise Exception
-    #
-    # def test_username_changes_if_already_occupied(self):
-    #     raise Exception
-
-    # def test_jwt_auth(self):
-    #     raise Exception
-    #
-    # def test_error_on_invalid_jwt(self):
-    #     raise Exception
-    #
-    # def test_username_ignored_if_jwt_is_present(self):
-    #     raise Exception
-
-
 User = get_user_model()
 
 
-class SingleGameConsumerTestCase(TestCase):
+class GameConsumerTestCase(TestCase):
     """
     This class contains tests specific to single game mode
     (+ all common tests, for now)
 
+    This class contains tests for logic common for all consumers:
+      * User identification
+      * Session controller creation
+      * Common message interactions and structure
+
     FIXME: find a better class to inherit from because tests get stuck :^)
     """
-    consumer_cls = SingleGameConsumer
+    consumer_cls = GameConsumer
 
     def setUp(self):
         self.session_record = GameSession.objects.create()
         self.other_session_record = GameSession.objects.create()
         self.application = JWTAuthMiddleware(
             URLRouter([
-                path('ws/play/single/<str:session_id>/',
+                path('ws/play/<str:session_id>/',
                      self.consumer_cls.as_asgi()),
             ]),
         )
@@ -69,7 +47,7 @@ class SingleGameConsumerTestCase(TestCase):
         params = urllib.parse.urlencode(kwargs)
         if session_id is None:
             session_id = self.session_record.session_id
-        path = f'ws/play/single/{session_id}/?{params}'
+        path = f'ws/play/{session_id}/?{params}'
 
         communicator = WebsocketCommunicator(
             self.application,

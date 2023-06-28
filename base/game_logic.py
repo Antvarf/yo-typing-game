@@ -250,6 +250,13 @@ class LocalTeam:
     def is_out(self):
         return all(p.is_out for p in self.players)
 
+    @is_out.setter
+    def is_out(self, value: bool):
+        if type(value) is not bool:
+            raise TypeError('`is_out` is expected to be boolean')
+        for p in self.players:
+            p.is_out = value
+
     @property
     def is_winner(self) -> bool:
         # TODO: test it
@@ -407,7 +414,7 @@ class PlayerController:
         self._remove_from_unique_displayed_names(local_player)
 
         if self._options.team_mode:
-            team = self.teams[local_player.team]
+            team = self.teams[local_player.team_name]
             team.remove_player(local_player)
 
     def set_ready_state(self, player: Player, state: bool):
@@ -631,19 +638,24 @@ class GameController:
                     events.append(self._start_game())
 
         elif self._state is self.STATE_PLAYING:
+            if self._options.game_duration:
+                prev_tick = self._last_tick or self._session.started_at
+                self._last_tick = timezone.now()
+                time_delta = self._last_tick - prev_tick
+
+                for c in self._competitors:
+                    # TODO: implement speed_up_percent setting
+                    c.time_left -= time_delta.total_seconds()
+                    is_survival = self._options.win_condition \
+                        == GameOptions.WIN_CONDITION_SURVIVED
+                    if is_survival and c.time_left <= 0:
+                        c.time_left = 0
+                        c.is_out = True
+
+            events.append(self._get_players_update_event())
+
             if self._is_game_over():
                 events.append(self._game_over())
-            else:
-                if self._options.game_duration:
-                    prev_tick = self._last_tick or self._session.started_at
-                    self._last_tick = timezone.now()
-                    time_delta = self._last_tick - prev_tick
-
-                    for c in self._competitors:
-                        # TODO: implement speed_up_percent setting
-                        c.time_left -= time_delta.total_seconds()
-
-                events.append(self._get_players_update_event())
 
         elif self._state is self.STATE_VOTING:
             pass
@@ -668,8 +680,8 @@ class GameController:
             type=Event.SERVER_INITIAL_STATE,
             data={
                 'player': player.to_dict(),
-                'players': self._players,
                 'words': self._word_provider.words,
+                **self._competitors_field,
             }
         )
         return event
@@ -677,7 +689,7 @@ class GameController:
     def _get_players_update_event(self) -> Event:
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_PLAYERS_UPDATE,
-                      data={'players': self._players})
+                      data=self._competitors_field)
         return event
 
     def _get_game_begins_event(self) -> Event:
@@ -719,7 +731,8 @@ class GameController:
         elif self._session.mode == GameModes.ENDLESS:
             options.game_duration = 30
             options.win_condition = GameOptions.WIN_CONDITION_SURVIVED
-            options.speed_up_percent = 140
+            options.time_per_word = 0.5
+            # options.speed_up_percent = 140
         elif self._session.mode == GameModes.TUGOFWAR:
             options.game_duration = 0
             options.team_mode = True
@@ -737,7 +750,7 @@ class GameController:
         return self._player_controller.get_player(player)
 
     @property
-    def _players(self):
+    def _competitors_field(self) -> dict:
         return self._player_controller.to_dict()
 
     @property
@@ -892,6 +905,9 @@ class GameController:
         if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
             for competitor in self._competitors:
                 competitor.is_winner = not competitor.is_out
+
+        if len(self._competitors) == 1:
+            self._competitors[0].is_winner = True
         # TODO: cover with tests
 
     @cached_property
@@ -899,9 +915,14 @@ class GameController:
         return self._players_with_results
 
     def _is_game_over(self) -> bool:
+        if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
+            out_count = [c.is_out for c in self._competitors].count(True) # TODO: move count to player controller
+            return out_count and out_count >= len(self._competitors) - 1
+
         if self._options.game_duration:
             if self._game_ends_at <= timezone.now():
                 return True
+
         if self._options.points_difference:
             # TODO: implement points_difference option
             raise NotImplementedError

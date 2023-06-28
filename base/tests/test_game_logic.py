@@ -456,7 +456,7 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(old_username, self.duplicate_name_player.displayed_name)
 
 
-class GameControllerTestCase(TestCase):
+class SingleGameControllerTestCase(TestCase):
     """
     Tests that:
         * GameController can be instanced only when given GameSession exists
@@ -478,14 +478,14 @@ class GameControllerTestCase(TestCase):
             - 'new_game'
     ---
     TODO:
-        * make this test case inheritable so that it applies to every game mode
         * test invalid events handling
     """
     controller_cls = GameController
+    game_mode = GameModes.SINGLE
 
     def setUp(self):
         self.session_record = GameSession.objects.create(
-            mode=GameModes.SINGLE,
+            mode=self.game_mode,
             name='test_session_1',
         )
         self.player_record = Player.objects.create(
@@ -784,11 +784,15 @@ class GameControllerTestCase(TestCase):
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(player=self.player_record)
         )
+        initial_state_event, players_update_event_1 = \
+            self.controller.player_event(join_event)
         word_event = Event(
             type=Event.PLAYER_WORD,
-            data=PlayerMessage(player=self.player_record, payload='test_word')
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=initial_state_event.data['words'][0],
+            ),
         )
-        _, players_update_event_1 = self.controller.player_event(join_event)
         players_before_submission = copy.deepcopy(players_update_event_1.data)
 
         self.controller._start_game()
@@ -1660,3 +1664,234 @@ class ControllerStorageTestCase(TestCase):
         storage_instance.remove_game_controller(
             session_id=self.session_record.session_id,
         )
+
+
+class IronWallGameControllerTestCase(SingleGameControllerTestCase):
+    game_mode = GameModes.IRONWALL
+    # TODO: check if game over condition is implemented and also
+    #       check exactly what changes and what doesn't on good/bad word
+
+
+class EndlessGameControllerTestCase(SingleGameControllerTestCase):
+    game_mode = GameModes.ENDLESS
+
+    def test_correct_word_adds_time_left_to_player(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        trigger_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(
+                player=self.player_record,
+            ),
+        )
+        word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=initial_state_event.data['words'][0],
+            ),
+        )
+
+        self.controller._start_game()
+        time.sleep(0.5)
+        self.controller.set_host(self.player_record)
+        players_update_event_1, = self.controller.player_event(
+            trigger_tick_event,
+        )
+
+        players_before_submission = players_update_event_1.data['players']
+        _, players_update_event_2 = self.controller.player_event(word_event)
+        players_after_submission = players_update_event_2.data['players']
+
+        self.assertEqual(players_update_event_2.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertLess(players_before_submission[0]['time_left'],
+                        players_after_submission[0]['time_left'])
+
+    def test_time_left_cannot_exceed_game_duration(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=initial_state_event.data['words'][0],
+            ),
+        )
+
+        self.controller._start_game()
+        _, players_update_event_2 = self.controller.player_event(word_event)
+        players_after_submission = players_update_event_2.data['players']
+
+        self.assertEqual(players_update_event_2.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(self.controller._options.game_duration,
+                         players_after_submission[0]['time_left'])
+
+    def test_is_out_is_initially_false(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        self.controller._start_game()
+
+        self.assertFalse(initial_state_event.data['player']['is_out'])
+
+    def test_is_out_is_true_when_time_left_reaches_zero(self):
+        self.controller._options.game_duration = 0.5
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        trigger_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(
+                player=self.player_record,
+            ),
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+
+        self.controller._start_game()
+        time.sleep(self.controller._options.game_duration)
+
+        self.controller.set_host(self.player_record)
+        players_update_event_1, _ = self.controller.player_event(
+            trigger_tick_event,
+        )
+        self.assertTrue(players_update_event_1.data['players'][0]['is_out'])
+
+    def test_cannot_submit_words_when_out(self):
+        self.controller._options.game_duration = 0.5
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_initial_state_event, _ = self.controller.player_event(
+            p1_joined_event,
+        )
+        p2_initial_state_event, _ = self.controller.player_event(
+            p2_joined_event,
+        )
+        p2_word_event = Event(
+            type=Event.PLAYER_WORD,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=p2_initial_state_event.data['words'][0],
+            ),
+        )
+        trigger_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(
+                player=self.player_record,
+            ),
+        )
+
+        local_p1 = self.controller._get_player(self.player_record)
+        local_p2 = self.controller._get_player(self.other_player_record)
+
+        self.controller._start_game()
+        local_p1.time_left = 9000
+        time.sleep(self.controller._options.game_duration)
+
+        self.controller.set_host(self.player_record)
+        self.controller.player_event(
+            trigger_tick_event,
+        )
+
+        p2_score_before = local_p2.score
+        self.controller.player_event(p2_word_event)
+        p2_score_after = local_p2.score
+
+        self.assertTrue(local_p2.is_out)
+        self.assertEqual(local_p2.time_left, 0)
+        self.assertEqual(p2_score_before, p2_score_after)
+
+    def test_game_ends_when_player_is_out_for_single(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        trigger_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(
+                player=self.player_record,
+            ),
+        )
+
+        local_p1 = self.controller._get_player(self.player_record)
+
+        self.controller._start_game()
+        local_p1.time_left = 0.5
+        time.sleep(local_p1.time_left)
+
+        self.controller.set_host(self.player_record)
+        _, game_over_event = self.controller.player_event(
+            trigger_tick_event,
+        )
+
+        self.assertEqual(game_over_event.type, Event.SERVER_GAME_OVER)
+        self.assertEqual(game_over_event.target, Event.TARGET_ALL)
+        self.assertTrue(local_p1.is_winner)
+
+    def test_game_ends_when_one_player_remains_standing_for_multiple(self):
+        p1_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        p2_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.other_player_record),
+        )
+        p1_initial_state_event, _ = self.controller.player_event(
+            p1_joined_event,
+        )
+        p2_initial_state_event, _ = self.controller.player_event(
+            p2_joined_event,
+        )
+        trigger_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(
+                player=self.player_record,
+            ),
+        )
+
+        local_p1 = self.controller._get_player(self.player_record)
+        local_p2 = self.controller._get_player(self.other_player_record)
+
+        self.controller._start_game()
+        local_p1.time_left = 9000
+        local_p2.time_left = 0.5
+        time.sleep(local_p2.time_left)
+
+        self.controller.set_host(self.player_record)
+        _, game_over_event = self.controller.player_event(
+            trigger_tick_event,
+        )
+
+        self.assertEqual(game_over_event.type, Event.SERVER_GAME_OVER)
+        self.assertEqual(game_over_event.target, Event.TARGET_ALL)
+        self.assertTrue(local_p1.is_winner)
+        self.assertFalse(local_p2.is_winner)
+
+
+# class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
+#     game_mode = GameModes.TUGOFWAR
+
+    # test we have teams
+    # test team scores are initialized to 0
+    # test team score increases when correct word is submitted
+    # test player score is added for correct words TODO: make it common
+    # test game over condition
+    # test win condition

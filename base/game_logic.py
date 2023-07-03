@@ -162,6 +162,8 @@ class WordListProvider:
 class LocalPlayer:
     player: InitVar[Player]
     words: InitVar[list[str]]
+    factory: InitVar[dataclass_factory.Factory]
+    results_factory: InitVar[dataclass_factory.Factory]
 
     id: int = None
     displayed_name: str = None
@@ -177,7 +179,8 @@ class LocalPlayer:
     mistake_ratio: float = 0.0
     is_winner: bool = None
 
-    def __post_init__(self, player: Player, words: list[str]):
+    def __post_init__(self, player: Player,
+                      words: list[str], factory, results_factory):
         self.id = player.pk
         self.displayed_name = player.displayed_name
         self.old_displayed_name = None
@@ -185,29 +188,16 @@ class LocalPlayer:
         self.total_word_length = 0
         self.voted_for = None
         self._next_word = iter(words)
+        self._factory = factory
+        self._results_factory = results_factory
 
     def get_next_word(self) -> str:
         return next(self._next_word)
 
-    def to_dict(self) -> dict:
-        """
-        Returns basic player properties as dict representation
-        """
-        result = asdict(self)
-        return result
-
-    def to_results_dict(self) -> dict:
-        """
-        A method extending player representation with additional stats
-        """
-        result = self.to_dict()
-        result.update({
-            'correct_words': self.correct_words,
-            'incorrect_words': self.incorrect_words,
-            'mistake_ratio': self.mistake_ratio,
-            'is_winner': self.is_winner,
-        })
-        return result
+    def to_dict(self, include_results=False):
+        # TODO: add tests for to_dict with results
+        factory = self._results_factory if include_results else self._factory
+        return factory.dump(self)
 
 
 @dataclass(init=False)
@@ -456,11 +446,12 @@ class PlayerController:
         self.session.players_now = self.player_count
         self.session.save()
 
-    @staticmethod
-    def _init_local_player(player: Player, words: list[str]):
+    def _init_local_player(self, player: Player, words: list[str]):
         local_player = LocalPlayer(
             player,
             words=words,
+            factory=self._factory,
+            results_factory=self._results_factory,
         )
         return local_player
 

@@ -751,11 +751,13 @@ class GameController:
             options.game_duration = 30
             options.win_condition = GameOptions.WIN_CONDITION_SURVIVED
             options.time_per_word = 0.5
-            # options.speed_up_percent = 140
+            options.speed_up_percent = 140.0
         elif self._session.mode == GameModes.TUGOFWAR:
             options.game_duration = 0
             options.team_mode = True
             options.points_difference = 50
+        if self._session.players_max > 1:
+            options.start_delay = 3
         return options
 
     def _add_player(self, player: Player) -> LocalPlayer:

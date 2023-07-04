@@ -778,6 +778,20 @@ class BaseTests:
                 self.assertIsNotNone(self.session_record.started_at)
             # .started_at should be set only after SERVER_START_GAME fires
 
+        def test_single_player_max_sets_zero_start_delay(self):
+            self.session_record.players_max = 1
+            self.session_record.save()
+            controller = self.controller_cls(self.session_record.session_id)
+
+            self.assertEqual(controller._options.start_delay, 0.0)
+
+        def test_multiple_players_max_sets_positive_start_delay(self):
+            self.session_record.players_max = 2
+            self.session_record.save()
+            controller = self.controller_cls(self.session_record.session_id)
+
+            self.assertGreater(controller._options.start_delay, 0.0)
+
         def test_cannot_set_ready_after_prep_stage(self):
             """
             Player should not be able to change the ready state during any stage
@@ -1572,6 +1586,16 @@ class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
     # TODO: check if game over condition is implemented and also
     #       check exactly what changes and what doesn't on good/bad word
 
+    def test_game_options(self):
+        self.assertEqual(self.controller._options.game_duration, 60)
+        self.assertEqual(self.controller._options.win_condition,
+                         GameOptions.WIN_CONDITION_BEST_SCORE)
+        self.assertEqual(self.controller._options.team_mode, False)
+        self.assertEqual(self.controller._options.speed_up_percent, 100.0)
+        self.assertEqual(self.controller._options.points_difference, 0)
+        self.assertEqual(self.controller._options.time_per_word, 0.0)
+        self.assertEqual(self.controller._options.strict_mode, False)
+
     def test_competitors_schema(self):
         join_event = Event(
             type=Event.PLAYER_JOINED,
@@ -1613,9 +1637,29 @@ class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
 class IronWallGameControllerTestCase(SingleGameControllerTestCase):
     game_mode = GameModes.IRONWALL
 
+    def test_game_options(self):
+        self.assertEqual(self.controller._options.game_duration, 60)
+        self.assertEqual(self.controller._options.win_condition,
+                         GameOptions.WIN_CONDITION_BEST_SCORE)
+        self.assertEqual(self.controller._options.team_mode, False)
+        self.assertEqual(self.controller._options.speed_up_percent, 100.0)
+        self.assertEqual(self.controller._options.points_difference, 0)
+        self.assertEqual(self.controller._options.time_per_word, 0.0)
+        self.assertEqual(self.controller._options.strict_mode, True)
+
 
 class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
     game_mode = GameModes.ENDLESS
+
+    def test_game_options(self):
+        self.assertEqual(self.controller._options.game_duration, 30)
+        self.assertEqual(self.controller._options.win_condition,
+                         GameOptions.WIN_CONDITION_SURVIVED)
+        self.assertEqual(self.controller._options.team_mode, False)
+        self.assertEqual(self.controller._options.speed_up_percent, 140.0)
+        self.assertEqual(self.controller._options.points_difference, 0)
+        self.assertEqual(self.controller._options.time_per_word, 0.5)
+        self.assertEqual(self.controller._options.strict_mode, False)
 
     def test_correct_word_adds_time_left_to_player(self):
         join_event = Event(
@@ -1832,6 +1876,16 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
 
 class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
     game_mode = GameModes.TUGOFWAR
+
+    def test_game_options(self):
+        self.assertEqual(self.controller._options.game_duration, 0)
+        self.assertEqual(self.controller._options.win_condition,
+                         GameOptions.WIN_CONDITION_BEST_SCORE)
+        self.assertEqual(self.controller._options.team_mode, True)
+        self.assertEqual(self.controller._options.speed_up_percent, 100.0)
+        self.assertEqual(self.controller._options.points_difference, 50)
+        self.assertEqual(self.controller._options.time_per_word, 0.0)
+        self.assertEqual(self.controller._options.strict_mode, False)
 
     def test_competitors_schema(self):
         # TODO: make competitors field a common presence in common tests

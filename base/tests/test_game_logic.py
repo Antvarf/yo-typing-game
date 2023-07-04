@@ -1,6 +1,7 @@
 import copy
 import time
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from base.game_logic import (
@@ -454,6 +455,44 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(old_username, new_username)
         self.assertEqual(old_username, self.player.displayed_name)
         self.assertEqual(old_username, self.duplicate_name_player.displayed_name)
+
+    # TODO: cover results schema with tests
+    def test_save_results(self):
+        self.session.start_game()
+        self.session.game_over()
+        self.controller.add_player(self.player)
+        local_player = self.controller.get_player(self.player)
+        local_player.is_winner = True
+
+        self.controller.save_results()
+        self.session.results.get()
+
+    def test_save_results_fails_if_session_is_not_finished(self):
+        self.controller.add_player(self.player)
+        local_player = self.controller.get_player(self.player)
+        local_player.is_winner = True
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self.controller.save_results()
+
+    def test_save_results_for_teams(self):
+        self.controller = self.controller_cls(
+            session=self.session,
+            options=GameOptions(
+                team_mode=True,
+            ),
+            words=self.words,
+        )
+        self.controller.add_player(self.player)
+        self.session.start_game()
+        self.session.game_over()
+        local_player = self.controller.get_player(self.player)
+        local_player.is_winner = True
+        self.controller.save_results()
+        result = self.session.results.get()
+
+        self.assertEqual(result.team_name, local_player.team_name)
 
 
 class BaseTests:

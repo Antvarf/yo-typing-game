@@ -339,6 +339,7 @@ class PlayerController:
         self_schema = dataclass_factory.Schema(only=self_fields_included)
         player_schema = dataclass_factory.Schema(only=player_fields_included)
         team_schema = dataclass_factory.Schema(only=team_fields_included)
+
         # TODO: add is_finished param
         return dataclass_factory.Factory(
             schemas={
@@ -445,6 +446,14 @@ class PlayerController:
     def _update_session_record(self):
         self.session.players_now = self.player_count
         self.session.save()
+
+    def save_results(self):
+        results = []
+        for player in self._players.values():
+            player_result = player.to_dict(include_results=True)
+            player_result.update({'player': player.db_record})
+            results.append(player_result)
+        self.session.save_results(results)
 
     def _init_local_player(self, player: Player, words: list[str]):
         local_player = LocalPlayer(
@@ -870,7 +879,8 @@ class GameController:
         self._state = self.STATE_VOTING
         self._session.game_over()
         self._mark_winners()
-        self._session.save_results(self.results)
+        # TODO: test that results are actually saved -> test game_over
+        self._player_controller.save_results()
 
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_GAME_OVER, data=self.results)

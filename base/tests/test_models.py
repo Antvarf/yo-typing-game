@@ -399,7 +399,7 @@ class GameSessionSaveResultsTestCase(TestCase):
 class SessionPlayerResultTestcase(TestCase):
     """Tests that:
         * session can't be NULL (is required)
-        * player can be null or a Player instance
+        * player can't be NULL (is required)
         * session and player pointers are unique together
         * team can be blank, can't be longer than 50 characters
         * score can have negative and positive values
@@ -456,11 +456,15 @@ class SessionPlayerResultTestcase(TestCase):
 
     def test_player_field(self):
         """
-            * Player field can be NULL
+            * Player field can't be NULL
         """
         self.result.player = None
-        self.result.full_clean()
-        self.result.save()
+
+        with self.assertRaises(ValidationError):
+            self.result.full_clean()
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self.result.save()
 
     def test_unique_session_player(self):
         """
@@ -559,12 +563,14 @@ class SessionPlayerResultTestcase(TestCase):
         results = SessionPlayerResult.objects.filter(session=session)
         self.assertFalse(results.exists())
 
-    def test_nullify_on_player_delete(self):
+    def test_cascade_delete_on_player_delete(self):
         """Delete player, check."""
         player = self.result.player
         player.delete()
-        result = SessionPlayerResult.objects.get(id=self.result.id)
-        self.assertIsNone(result.player)
+
+        with self.assertRaises(SessionPlayerResult.DoesNotExist):
+            with transaction.atomic():
+                SessionPlayerResult.objects.get(id=self.result.id)
 
     # def test_correct_words(self):
     #     good_values = (0, 1, 3, 1024)

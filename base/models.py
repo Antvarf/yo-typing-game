@@ -69,7 +69,7 @@ class SessionPlayerResult(models.Model):
                                 related_name='results')
     player = models.ForeignKey('Player', on_delete=models.CASCADE,
                                related_name='sessions')
-    team = models.CharField(blank=True, max_length=50)
+    team_name = models.CharField(blank=True, max_length=50)
     score = models.IntegerField()
     speed = models.FloatField()
     mistake_ratio = models.FloatField()

@@ -246,7 +246,7 @@ class PlayerControllerTestCase(TestCase):
         self.assertIn('players', team_red)
         self.assertIn('players', team_blue)
         self.assertIsInstance(player, dict)
-        self.assertIn('team_name', player)
+        self.assertIn('teamName', player)
 
     def test_default_add_player_with_teams_distribution(self):
         """Player is added to team with fewer players. Red is the default"""
@@ -273,8 +273,8 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(len(team_blue_before.get('players')), 0)
         self.assertEqual(len(team_red_after.get('players')), 1)
         self.assertEqual(len(team_blue_after.get('players')), 1)
-        self.assertEqual(red_player['team_name'], 'red')
-        self.assertEqual(blue_player['team_name'], 'blue')
+        self.assertEqual(red_player['teamName'], 'red')
+        self.assertEqual(blue_player['teamName'], 'blue')
 
     def test_set_player_team(self):
         self.controller = self.controller_cls(
@@ -292,8 +292,8 @@ class PlayerControllerTestCase(TestCase):
         blue_player = teams['blue']['players'][0].copy()
 
         self.assertEqual(red_player['id'], blue_player['id'])
-        self.assertEqual(red_player['team_name'], 'red')
-        self.assertEqual(blue_player['team_name'], 'blue')
+        self.assertEqual(red_player['teamName'], 'red')
+        self.assertEqual(blue_player['teamName'], 'blue')
         self.assertEqual(len(self.controller.team_red.players), 0)
         self.assertEqual(len(self.controller.team_blue.players), 1)
 
@@ -346,7 +346,7 @@ class PlayerControllerTestCase(TestCase):
         red_player_2 = teams_2['red']['players'][0].copy()
 
         self.assertEqual(red_player_1, red_player_2)
-        self.assertEqual(red_player_1['team_name'], 'red')
+        self.assertEqual(red_player_1['teamName'], 'red')
         self.assertEqual(len(self.controller.team_red.players), 1)
         self.assertEqual(len(self.controller.team_blue.players), 0)
 
@@ -368,9 +368,9 @@ class PlayerControllerTestCase(TestCase):
         self.controller.add_player(self.player)
         teams = self.controller.to_dict()['teams']
 
-        self.assertIn('time_left', teams['red'])
-        self.assertIn('time_left', teams['blue'])
-        self.assertNotIn('time_left', teams['red']['players'][0])
+        self.assertIn('timeLeft', teams['red'])
+        self.assertIn('timeLeft', teams['blue'])
+        self.assertNotIn('timeLeft', teams['red']['players'][0])
 
     def test_team_mode_for_race_moves_time_left(self):
         self.controller = self.controller_cls(
@@ -384,9 +384,9 @@ class PlayerControllerTestCase(TestCase):
         self.controller.add_player(self.player)
         teams = self.controller.to_dict()['teams']
 
-        self.assertIn('time_left', teams['red'])
-        self.assertIn('time_left', teams['blue'])
-        # self.assertNotIn('time_left', teams['red']['players'][0])
+        self.assertIn('timeLeft', teams['red'])
+        self.assertIn('timeLeft', teams['blue'])
+        # self.assertNotIn('timeLeft', teams['red']['players'][0])
 
     def test_team_mode_for_competition_moves_time_left(self):
         self.controller = self.controller_cls(
@@ -430,6 +430,8 @@ class PlayerControllerTestCase(TestCase):
         self.assertEqual(new_username, local_player_2.displayed_name)
         self.assertEqual(old_username, self.player.displayed_name)
         self.assertEqual(old_username, self.duplicate_name_player.displayed_name)
+
+    # TODO: test explicitly for schema name conversion
 
     def test_displayed_name_gets_unoccupied_if_player_left(self):
         """
@@ -1586,8 +1588,9 @@ class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertIn('id', player)
         self.assertIn('score', player)
         self.assertIn('speed', player)
-        self.assertIn('is_ready', player)
-        self.assertIn('displayed_name', player)
+        self.assertIn('isReady', player)
+        self.assertIn('timeLeft', player)
+        self.assertIn('displayedName', player)
 
     def test_game_over_condition(self):
         join_event = Event(
@@ -1647,8 +1650,8 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
 
         self.assertEqual(players_update_event_2.type,
                          Event.SERVER_PLAYERS_UPDATE)
-        self.assertLess(players_before_submission[0]['time_left'],
-                        players_after_submission[0]['time_left'])
+        self.assertLess(players_before_submission[0]['timeLeft'],
+                        players_after_submission[0]['timeLeft'])
 
     def test_time_left_cannot_exceed_game_duration(self):
         join_event = Event(
@@ -1671,7 +1674,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertEqual(players_update_event_2.type,
                          Event.SERVER_PLAYERS_UPDATE)
         self.assertEqual(self.controller._options.game_duration,
-                         players_after_submission[0]['time_left'])
+                         players_after_submission[0]['timeLeft'])
 
     def test_is_out_is_initially_false(self):
         join_event = Event(
@@ -1681,7 +1684,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         initial_state_event, _ = self.controller.player_event(join_event)
         self.controller._start_game()
 
-        self.assertFalse(initial_state_event.data['player']['is_out'])
+        self.assertFalse(initial_state_event.data['player']['isOut'])
 
     def test_is_out_is_true_when_time_left_reaches_zero(self):
         self.controller._options.game_duration = 0.5
@@ -1704,7 +1707,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         players_update_event_1, _ = self.controller.player_event(
             trigger_tick_event,
         )
-        self.assertTrue(players_update_event_1.data['players'][0]['is_out'])
+        self.assertTrue(players_update_event_1.data['players'][0]['isOut'])
 
     def test_cannot_submit_words_when_out(self):
         self.controller._options.game_duration = 0.5
@@ -1856,9 +1859,8 @@ class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
         self.assertIn('id', player)
         self.assertIn('score', player)
         self.assertIn('speed', player)
-        self.assertIn('team_name', player)
-        self.assertIn('displayed_name', player)
-        self.assertIn('displayed_name', player)
+        self.assertIn('teamName', player)
+        self.assertIn('displayedName', player)
         # TODO: test player schema extensively
 
     def test_correct_word_increases_team_score(self):
@@ -1876,13 +1878,13 @@ class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
         competitors = self.controller._competitors_field
 
         player = initial_state_event.data['player']
-        team = competitors['teams'][player['team_name']]
+        team = competitors['teams'][player['teamName']]
 
         self.assertEqual(team['score'], 0)
         self.controller._start_game()
         _, players_update_event = self.controller.player_event(word_event)
 
-        team = players_update_event.data['teams'][player['team_name']]
+        team = players_update_event.data['teams'][player['teamName']]
         player = team['players'][0]
 
         self.assertEqual(team['score'], len(next_word))

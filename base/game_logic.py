@@ -18,6 +18,10 @@ from base.models import (
 )
 
 
+# naming style used on client for easy converting
+NAME_STYLE = dataclass_factory.NameStyle.camel_lower
+
+
 class ControllerStorage:
     _sessions = dict()
 
@@ -181,10 +185,10 @@ class LocalPlayer:
 
     def __post_init__(self, player: Player,
                       words: list[str], factory, results_factory):
+        self.db_record = player
         self.id = player.pk
         self.displayed_name = player.displayed_name
         self.old_displayed_name = None
-        self.db_record = player
         self.total_word_length = 0
         self.voted_for = None
         self._next_word = iter(words)
@@ -336,9 +340,12 @@ class PlayerController:
                 'is_winner',
             ])
 
-        self_schema = dataclass_factory.Schema(only=self_fields_included)
-        player_schema = dataclass_factory.Schema(only=player_fields_included)
-        team_schema = dataclass_factory.Schema(only=team_fields_included)
+        self_schema = dataclass_factory.Schema(only=self_fields_included,
+                                               name_style=NAME_STYLE)
+        player_schema = dataclass_factory.Schema(only=player_fields_included,
+                                                 name_style=NAME_STYLE)
+        team_schema = dataclass_factory.Schema(only=team_fields_included,
+                                               name_style=NAME_STYLE)
 
         # TODO: add is_finished param
         return dataclass_factory.Factory(
@@ -448,11 +455,25 @@ class PlayerController:
         self.session.save()
 
     def save_results(self):
+        # TODO: this will need a refactor
+        #   1. Schema (and model) should account for other fields like is_out
+        #   2. My mom said it smells bad in my room, must be this code
+        schema_fields = [
+            'score', 'speed', 'is_winner',
+            'correct_words', 'incorrect_words', 'mistake_ratio'
+        ]
+        if self._options.team_mode:
+            schema_fields.append('team_name')
+        result_schema = dataclass_factory.Schema(
+            only=schema_fields,
+        )
+        factory = dataclass_factory.Factory(default_schema=result_schema)
+
         results = []
         for player in self._players.values():
-            player_result = player.to_dict(include_results=True)
-            player_result.update({'player': player.db_record})
-            results.append(player_result)
+            result = factory.dump(player)
+            result.update({'player': player.db_record})
+            results.append(result)
         self.session.save_results(results)
 
     def _init_local_player(self, player: Player, words: list[str]):

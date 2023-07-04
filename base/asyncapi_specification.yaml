@@ -13,9 +13,9 @@ servers:
     protocol: wss
 
 channels:
-  /play/{session_id}/:
+  /play/{sessionId}/:
     parameters:
-      session_id:
+      sessionId:
         description: |
           The id of the session.
         schema:
@@ -29,7 +29,7 @@ channels:
             username:
               type: string
               description: the displayed name of the player
-            auth_token:
+            jwt:
               type: string
               format: JWT
               description: authentication token for player (if authenticated)
@@ -160,20 +160,20 @@ components:
           type: integer
         speed:
           type: number
-        time_left:
+        timeLeft:
           type: number
       required:
         - score
         - speed
-        - time_left
+        - timeLeft
 
     competitor_results:
       type: object
       properties:
-        is_winner:
+        isWinner:
           type: boolean
       required:
-        - is_winner
+        - isWinner
 
     player:
       type: object
@@ -182,26 +182,26 @@ components:
         - properties:
             id:
               type: integer
-            displayed_name:
+            displayedName:
               type: string
-            is_ready:
+            isReady:
               type: boolean
-            is_finished:
+            isFinished:
               description: |
                 Is present if words are limited
               type: boolean
-            is_out:
+            isOut:
               description: |
                 Is present if survival is on
               type: boolean
-            team:
+            teamName:
               description: |
                 Is present if playing in teams
               type: string
           required:
             - id
-            - displayed_name
-            - is_ready
+            - displayedName
+            - isReady
 
     players:
       type: array
@@ -342,11 +342,11 @@ components:
                 properties:
                   mode:
                     type: string
-                  vote_count:
+                  voteCount:
                     type: integer
                 required:
                   - mode
-                  - vote_count
+                  - voteCount
           required:
             - data
 

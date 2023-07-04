@@ -278,6 +278,7 @@ class GameOptions:
     points_difference: int = 0
     time_per_word: float = 0.0
     strict_mode: bool = False
+    start_delay: float = 0.0
 
 
 def updates_db(f):
@@ -507,9 +508,6 @@ class GameController:
     word_provider_class = WordListProvider
     player_controller_class = PlayerController
 
-    START_GAME_DELAY = 0
-    GAME_DURATION_SEC = None
-
     def __init__(self, session_id=None):
         self._session = GameSession.objects.get(session_id=session_id)
         if self._session.started_at or self._session.is_finished:
@@ -595,11 +593,11 @@ class GameController:
             if self._can_start():
                 game_begins_event = self._get_game_begins_event()
                 events.append(game_begins_event)
-                if self.START_GAME_DELAY <= 0: # TODO: add delay to GameOptions
+                if self._options.start_delay <= 0:
                     start_game_event = self._start_game()
                     events.append(start_game_event)
                 else:
-                    self._stage_start_game(self.START_GAME_DELAY)
+                    self._stage_start_game(self._options.start_delay)
             if not self._player_count and self._state is self.STATE_PLAYING:
                 events.append(self._game_over())
             if self._is_voting_finished():
@@ -619,11 +617,11 @@ class GameController:
             if self._can_start():
                 game_begins_event = self._get_game_begins_event()
                 events.append(game_begins_event)
-                if self.START_GAME_DELAY <= 0:
+                if self._options.start_delay <= 0:
                     start_game_event = self._start_game()
                     events.append(start_game_event)
                 else:
-                    self._stage_start_game(self.START_GAME_DELAY)
+                    self._stage_start_game(self._options.start_delay)
         return events
 
     def _handle_word(self, player: Player, payload: str) -> list[Event]:
@@ -716,7 +714,7 @@ class GameController:
     def _get_game_begins_event(self) -> Event:
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_GAME_BEGINS,
-                      data=self.START_GAME_DELAY)
+                      data=self._options.start_delay)
         return event
 
     def _get_new_word_event(self) -> Event:
@@ -853,7 +851,7 @@ class GameController:
     def _player_count(self) -> int:
         return self._player_controller.player_count
 
-    def _stage_start_game(self, countdown: int):
+    def _stage_start_game(self, countdown: float):
         """
         Set _game_begins_at for future ticks to compare tz.now() against
         """

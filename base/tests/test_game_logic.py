@@ -771,7 +771,7 @@ class BaseTests:
             self.assertEqual(game_begins_event.target, Event.TARGET_ALL)
             self.assertEqual(game_begins_event.type, Event.SERVER_GAME_BEGINS)
 
-            if self.controller.START_GAME_DELAY <= 0:
+            if self.controller._options.start_delay <= 0:
                 start_game_event = server_events[2]
                 self.assertEqual(start_game_event.target, Event.TARGET_ALL)
                 self.assertEqual(start_game_event.type, Event.SERVER_START_GAME)
@@ -1085,7 +1085,7 @@ class BaseTests:
                 type=Event.TRIGGER_TICK,
                 data=PlayerMessage(player=self.player_record),
             )
-            self.controller.START_GAME_DELAY = 1
+            self.controller._options.start_delay = 1
             self.controller.player_event(join_event)
             players_update_event, game_begins_event = \
                 self.controller.player_event(ready_event)
@@ -1098,7 +1098,7 @@ class BaseTests:
             self.assertEqual(game_begins_event.type,
                              Event.SERVER_GAME_BEGINS)
             self.assertEqual(game_begins_event.data,
-                             self.controller.START_GAME_DELAY)
+                             self.controller._options.start_delay)
             self.assertEqual(len(tick_response_events), 0)
 
         def test_tick_after_game_start_returns_start_game(self):
@@ -1114,11 +1114,11 @@ class BaseTests:
                 type=Event.TRIGGER_TICK,
                 data=PlayerMessage(player=self.player_record),
             )
-            self.controller.START_GAME_DELAY = 0.2
+            self.controller._options.start_delay = 0.2
             self.controller.player_event(join_event)
             players_update_event, game_begins_event = \
                 self.controller.player_event(ready_event)
-            time.sleep(self.controller.START_GAME_DELAY)
+            time.sleep(self.controller._options.start_delay)
 
             self.controller.set_host(self.player_record)
             tick_response_events = self.controller.player_event(tick_event)
@@ -1128,7 +1128,7 @@ class BaseTests:
             self.assertEqual(game_begins_event.type,
                              Event.SERVER_GAME_BEGINS)
             self.assertEqual(game_begins_event.data,
-                             self.controller.START_GAME_DELAY)
+                             self.controller._options.start_delay)
             self.assertEqual(tick_response_events[0].type, Event.SERVER_START_GAME)
             self.assertEqual(tick_response_events[0].target, Event.TARGET_ALL)
 

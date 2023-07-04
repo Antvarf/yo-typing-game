@@ -279,8 +279,8 @@ class GameSessionSaveResultsTestCase(TestCase):
             - is_winner
             - correct_words
             - incorrect_words
-            - team (optional)
-        * team is optional
+            - team_name (optional)
+        * team_name is optional
         * exceptions raised on invalid or missing values
         * if at least one result is invalid, none are saved
         * on success is_finished is set True, finished_at is set roughly to now
@@ -312,7 +312,7 @@ class GameSessionSaveResultsTestCase(TestCase):
             'is_winner': True,
             'correct_words': 80,
             'incorrect_words': 16,
-            'team': '',
+            'team_name': '',
         }
         self.other_player_result = {
             'player': self.other_player,
@@ -322,7 +322,7 @@ class GameSessionSaveResultsTestCase(TestCase):
             'is_winner': True,
             'correct_words': 800,
             'incorrect_words': 200,
-            'team': '',
+            'team_name': '',
         }
         self.results = [
             self.player_result,
@@ -401,7 +401,7 @@ class SessionPlayerResultTestcase(TestCase):
         * session can't be NULL (is required)
         * player can't be NULL (is required)
         * session and player pointers are unique together
-        * team can be blank, can't be longer than 50 characters
+        * team_name can be blank, can't be longer than 50 characters
         * score can have negative and positive values
         * score is required
         * speed can't have negative values
@@ -488,15 +488,15 @@ class SessionPlayerResultTestcase(TestCase):
         self.result2.full_clean()
         self.result2.save()
 
-    def test_team_field(self):
+    def test_team_name_field(self):
         good_names = ('', 'Weskers', 'A'*50)
         bad_names = ('A'*51,)
         for team_name in good_names:
-            self.result.team = team_name
+            self.result.team_name = team_name
             self.result.full_clean()
             self.result.save()
         for team_name in bad_names:
-            self.result.team = team_name
+            self.result.team_name = team_name
             with self.assertRaises(ValidationError):
                 self.result.full_clean()
             # Database-enforced max_length doesn't work with sqlite3

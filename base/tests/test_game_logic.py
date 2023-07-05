@@ -931,11 +931,12 @@ class BaseTests:
 
             self.assertEqual(server_events[0].type, Event.SERVER_VOTES_UPDATE)
             self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-            self.assertTrue(issubclass(type(server_events[0].data), dict))
+            self.assertTrue(issubclass(type(server_events[0].data), list))
+            self.assertEqual(set(GameModes.labels),
+                             set(i['mode'] for i in server_events[0].data))
             self.assertTrue(all(
-                mode in GameModes.labels and type(count) is int
-                for mode, count
-                in server_events[0].data.items()
+                i.keys() == {'mode', 'voteCount'}
+                for i in server_events[0].data
             ))
 
         def test_player_cannot_submit_vote_while_preparation(self):

@@ -740,9 +740,16 @@ class GameController:
         return event
 
     def _get_votes_update_event(self) -> Event:
+        mode_votes = [
+            {
+                'mode': mode,
+                'voteCount': self._player_controller.votes.get(mode, 0),
+            }
+            for mode
+            in GameModes.labels
+        ]
         event = Event(target=Event.TARGET_ALL,
-                      type=Event.SERVER_VOTES_UPDATE,
-                      data=self._player_controller.votes)
+                      type=Event.SERVER_VOTES_UPDATE, data=mode_votes)
         return event
 
     def _get_modes_available_event(self) -> Event:

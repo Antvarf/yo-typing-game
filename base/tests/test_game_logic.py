@@ -1016,7 +1016,26 @@ class BaseTests:
 
             self.assertEqual(server_events_1, server_events_2)  # vote counts are eq
 
-        def test_no_session_creation_with_zero_votes(self):
+        def test_new_game_event_schema(self):
+            join_event = Event(
+                type=Event.PLAYER_JOINED,
+                data=PlayerMessage(player=self.player_record),
+            )
+            vote_event = Event(
+                type=Event.PLAYER_MODE_VOTE,
+                data=PlayerMessage(player=self.player_record,
+                                   payload=GameModes.labels[0]),
+            )
+            self.controller.player_event(join_event)
+            self.controller._start_game()
+            self.controller._game_over()
+            _, new_game_event = self.controller.player_event(vote_event)
+
+            self.assertEqual(new_game_event.type, Event.SERVER_NEW_GAME)
+            self.assertEqual(new_game_event.target, Event.TARGET_ALL)
+            self.assertIsInstance(new_game_event.data, str)
+
+        def test_no_session_creation_for_duplicate_votes(self):
             """
             If last vote needed is submitted multiple times,
             only one new session is created. New votes aren't

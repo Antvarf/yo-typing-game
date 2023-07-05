@@ -556,6 +556,7 @@ class GameController:
             Event.PLAYER_WORD: self._handle_word,
             Event.TRIGGER_TICK: self._handle_tick,
             Event.PLAYER_MODE_VOTE: self._handle_player_vote,
+            Event.PLAYER_SWITCH_TEAM: self._handle_switch_team,
         }
         if hasattr(self, 'get_extending_event_handlers'):
             extensions = self.get_extending_event_handlers()
@@ -691,6 +692,14 @@ class GameController:
 
             if self._is_voting_finished():
                 events.append(self._create_new_game())
+        return events
+
+    def _handle_switch_team(self, player: Player, payload: str) -> list[Event]:
+        events = []
+        if self._state is not self.STATE_PREPARING:
+            raise InvalidOperationError
+        self._player_controller.set_player_team(player, payload)
+        events.append(self._get_players_update_event())
         return events
 
     def _get_initial_state_event(self, player: LocalPlayer) -> Event:

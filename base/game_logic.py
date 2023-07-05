@@ -632,6 +632,10 @@ class GameController:
             if payload == local_player.get_next_word():
                 word_length = len(payload)
                 local_player.score += word_length
+                local_player.total_word_length += word_length
+                eta = (timezone.now() - self._session.started_at).total_seconds()
+                local_player.speed = local_player.total_word_length / eta
+                local_player.correct_words += 1
                 if self._options.time_per_word:
                     bonus_time = self._options.time_per_word * word_length
                     if self._options.team_mode:
@@ -642,6 +646,9 @@ class GameController:
                         float(self._options.game_duration),
                         competitor.time_left + bonus_time,
                     )
+            else:
+                # TODO: cover with tests
+                local_player.incorrect_words += 1
             # TODO: check for game_over condition
             events.append(self._get_new_word_event())
             events.append(self._get_players_update_event())

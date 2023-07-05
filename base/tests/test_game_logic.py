@@ -851,12 +851,11 @@ class BaseTests:
                     payload=initial_state_event.data['words'][0],
                 ),
             )
-            players_before_submission = copy.deepcopy(players_update_event_1.data)
 
             self.controller._start_game()
             new_word_event, players_update_event_2 = \
                 self.controller.player_event(word_event)
-            players_after_submission = players_update_event_2.data
+            local_player = self.controller._get_player(self.player_record)
 
             self.assertEqual(new_word_event.type, Event.SERVER_NEW_WORD)
             self.assertEqual(new_word_event.target, Event.TARGET_ALL)
@@ -865,8 +864,9 @@ class BaseTests:
             self.assertEqual(players_update_event_2.type,
                              Event.SERVER_PLAYERS_UPDATE)
             self.assertEqual(players_update_event_2.target, Event.TARGET_ALL)
-            self.assertNotEqual(players_before_submission,
-                                players_after_submission)
+
+            self.assertGreater(local_player.speed, 0)
+            self.assertEqual(local_player.correct_words, 1)
 
         def test_player_cannot_submit_words_while_prep(self):
             """

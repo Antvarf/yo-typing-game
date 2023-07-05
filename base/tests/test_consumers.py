@@ -272,7 +272,7 @@ class GameConsumerTestCase(TestCase):
 
         self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
         self.assertEqual(
-            message['data']['player']['displayed_name'],
+            message['data']['player']['displayedName'],
             user.username,
         )
 
@@ -293,7 +293,7 @@ class GameConsumerTestCase(TestCase):
 
         self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
         self.assertEqual(
-            message['data']['player']['displayed_name'],
+            message['data']['player']['displayedName'],
             user.username,
         )
 
@@ -310,7 +310,7 @@ class GameConsumerTestCase(TestCase):
 
         self.assertEqual(message['type'], Event.SERVER_INITIAL_STATE)  # yay
         self.assertEqual(
-            message['data']['player']['displayed_name'],
+            message['data']['player']['displayedName'],
             'test_user_2'
         )
 

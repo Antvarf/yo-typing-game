@@ -54,7 +54,7 @@ class GameConsumer(JsonWebsocketConsumer):
         except (ControllerError,
                 PlayerInputError, GameSession.DoesNotExist) as e:
             self.send_error(str(e))
-            self.close(418)
+            self.close(3418)
 
     def receive_json(self, content, **kwargs):
         try:

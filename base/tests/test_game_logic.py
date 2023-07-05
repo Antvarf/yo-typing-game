@@ -1633,6 +1633,26 @@ class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.controller._game_over()
         self.assertTrue(local_player.is_winner)
 
+    def cannot_switch_team_here(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        opposite_team = 'red'
+        switch_team_event = Event(
+            type=Event.PLAYER_SWITCH_TEAM,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=opposite_team,
+            ),
+        )
+        local_player = self.controller._get_player(self.player_record)
+
+        with self.assertRaises(InvalidOperationError):
+            players_update_event, = self.controller.player_event(switch_team_event)
+        self.assertEqual(local_player.team_name, None)
+
 
 class IronWallGameControllerTestCase(SingleGameControllerTestCase):
     game_mode = GameModes.IRONWALL
@@ -1871,6 +1891,26 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertTrue(local_p1.is_winner)
         self.assertFalse(local_p2.is_winner)
 
+    def cannot_switch_team_here(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        opposite_team = 'red'
+        switch_team_event = Event(
+            type=Event.PLAYER_SWITCH_TEAM,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=opposite_team,
+            ),
+        )
+        local_player = self.controller._get_player(self.player_record)
+
+        with self.assertRaises(InvalidOperationError):
+            players_update_event, = self.controller.player_event(switch_team_event)
+        self.assertEqual(local_player.team_name, None)
+
     # TODO: test schemas
 
 
@@ -1915,7 +1955,59 @@ class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
         self.assertIn('speed', player)
         self.assertIn('teamName', player)
         self.assertIn('displayedName', player)
-        # TODO: test player schema extensively
+
+    def test_switch_team_event(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        team_name = initial_state_event.data['player']['teamName']
+        opposite_team = 'red' if team_name == 'blue' else 'blue'
+        switch_team_event = Event(
+            type=Event.PLAYER_SWITCH_TEAM,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=opposite_team,
+            ),
+        )
+
+        players_update_event, = self.controller.player_event(switch_team_event)
+        new_team = players_update_event.data['teams'][opposite_team]
+
+        self.assertEqual(players_update_event.type,
+                         Event.SERVER_PLAYERS_UPDATE)
+        self.assertEqual(players_update_event.target,
+                         Event.TARGET_ALL)
+        self.assertEqual(len(new_team['players']), 1)
+        self.assertEqual(new_team['players'][0]['teamName'], opposite_team)
+
+    def cannot_switch_team_after_prep(self):
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record)
+        )
+        initial_state_event, _ = self.controller.player_event(join_event)
+        team_name = initial_state_event.data['player']['teamName']
+        opposite_team = 'red' if team_name == 'blue' else 'blue'
+        switch_team_event = Event(
+            type=Event.PLAYER_SWITCH_TEAM,
+            data=PlayerMessage(
+                player=self.player_record,
+                payload=opposite_team,
+            ),
+        )
+        local_player = self.controller._get_player(self.player_record)
+
+        self.controller._start_game()
+        with self.assertRaises(InvalidOperationError):
+            players_update_event, = self.controller.player_event(switch_team_event)
+        self.assertEqual(local_player.team_name, team_name)
+
+        self.controller._game_over()
+        with self.assertRaises(InvalidOperationError):
+            players_update_event, = self.controller.player_event(switch_team_event)
+        self.assertEqual(local_player.team_name, team_name)
 
     def test_correct_word_increases_team_score(self):
         join_event = Event(

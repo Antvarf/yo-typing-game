@@ -675,7 +675,7 @@ class PlayerTestCase(TestCase):
 
 class PlayerStatsTestCase(TestCase):
     """
-    Tests .with_stats() queryset method of Player
+    Test .with_stats() and .authenticated_only() queryset methods of Player
     """
     @staticmethod
     def generate_session_results(players, sessions):
@@ -781,3 +781,19 @@ class PlayerStatsTestCase(TestCase):
         """Test that .with_stats() keeps the empty queryset empty"""
         players = Player.objects.none()
         self.assertFalse(players.with_stats().exists())
+
+    def test_authenticated_only_skips_anonymous_players(self):
+        User = get_user_model()
+
+        User.objects.create_user(username='test_user_1', password='h')
+        anonymous_player = Player.objects.create(
+            displayed_name='test_anonymous_user_1',
+        )
+        players = Player.objects.authenticated_only()
+
+        for p in players:
+            self.assertIsNotNone(p.user)
+            self.assertNotEqual(p, anonymous_player)
+
+        for u in User.objects.all():
+            self.assertIn(u.player, players)

@@ -23,7 +23,10 @@ class PlayerViewSet(GenericViewSet, ListModelMixin,
     def get_queryset(self):
         if hasattr(self, 'action'):
             if self.action in ('stats', 'retrieve'):
-                return self.queryset.with_stats()
+                queryset = self.queryset.with_stats()
+                if self.action == 'stats':
+                    queryset = queryset.authenticated_only()
+                return queryset
         return self.queryset.all()
 
     @action(detail=False,

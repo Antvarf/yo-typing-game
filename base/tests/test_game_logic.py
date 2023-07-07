@@ -792,6 +792,13 @@ class BaseTests:
 
             self.assertGreater(controller._options.start_delay, 0.0)
 
+        def test_zero_players_max_sets_positive_start_delay(self):
+            self.session_record.players_max = 0
+            self.session_record.save()
+            controller = self.controller_cls(self.session_record.session_id)
+
+            self.assertGreater(controller._options.start_delay, 0.0)
+
         def test_cannot_set_ready_after_prep_stage(self):
             """
             Player should not be able to change the ready state during any stage

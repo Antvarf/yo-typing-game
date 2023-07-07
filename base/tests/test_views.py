@@ -166,6 +166,9 @@ class PlayerTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for player in response.data:
             self.assertEqual(player.keys(), object_fields)
+            self.assertIn(player['id'], [self.player.id,
+                                         self.another_player.id])
+            self.assertNotEqual(player['id'], self.anonymous_player.id)
 
 
 class SessionTestCase(APITestCase):

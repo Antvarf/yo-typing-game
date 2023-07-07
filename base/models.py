@@ -40,6 +40,9 @@ class StatsQuerySet(models.QuerySet):
             games_played=Count('sessions', filter=condition),
         )
 
+    def authenticated_only(self):
+        return self.filter(user__isnull=False)
+
 
 class Player(models.Model):
     """Stores profile data i.e. player stats and displayed name for user"""

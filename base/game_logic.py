@@ -779,7 +779,7 @@ class GameController:
             options.game_duration = 0
             options.team_mode = True
             options.points_difference = 50
-        if self._session.players_max > 1:
+        if self._session.players_max != 1:
             options.start_delay = 3
         return options
 

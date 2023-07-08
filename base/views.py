@@ -55,8 +55,7 @@ class SessionViewSet(GenericViewSet, ListModelMixin,
     def get_queryset(self):
         if hasattr(self, 'action'):
             if self.action == 'list':
-                return self.queryset.filter(
+                return self.queryset.multiplayer_only().filter(
                     is_finished=False,
-                    is_private=False
                 )
         return self.queryset.all()

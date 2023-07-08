@@ -105,6 +105,11 @@ class SessionPlayerResult(models.Model):
         ]
 
 
+class GameSessionQuerySet(models.QuerySet):
+    def multiplayer_only(self):
+        return self.filter(~Q(players_max=1))
+
+
 class GameSession(models.Model):
     """Stores information about sessions"""
     mode = models.CharField(max_length=1, choices=GameModes.choices)
@@ -132,6 +137,8 @@ class GameSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(blank=True, null=True)
     finished_at = models.DateTimeField(blank=True, null=True)
+
+    objects = GameSessionQuerySet.as_manager()
 
     class Meta:
         constraints = [

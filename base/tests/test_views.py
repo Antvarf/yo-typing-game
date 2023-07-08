@@ -186,7 +186,6 @@ class SessionTestCase(APITestCase):
         self.object_fields = set(['id', 'session_id', 'mode', 'name',
                                    'is_private', 'players_max', 'players_now'])
 
-
     def test_create_session(self):
         self.client.force_authenticate(user=self.player.user)
         url = reverse('yo_game:gamesession-list')
@@ -217,12 +216,11 @@ class SessionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for obj in response.data:
             self.assertEqual(obj.keys(), self.object_fields)
-            self.assertEqual(obj['is_private'], False)
 
-    def test_private_and_finished_sessions_are_not_listed(self):
-        private_session = GameSession.objects.create(
+    def test_single_player_and_finished_sessions_are_not_listed(self):
+        single_player_session = GameSession.objects.create(
             mode=GameModes.SINGLE,
-            is_private=True,
+            players_max=1,
         )
         finished_session = GameSession.objects.create(
             mode=GameModes.SINGLE,
@@ -234,8 +232,8 @@ class SessionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for obj in response.data:
             self.assertEqual(obj.keys(), self.object_fields)
-            self.assertEqual(obj['is_private'], False)
-            self.assertNotEqual(obj['id'], private_session.id)
+            self.assertNotEqual(obj['players_max'], 1)
+            self.assertNotEqual(obj['id'], single_player_session.id)
             self.assertNotEqual(obj['id'], finished_session.id)
 
     def test_retreive(self):

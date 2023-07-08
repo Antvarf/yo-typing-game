@@ -267,6 +267,19 @@ class GameSessionTestCase(TestCase):
                 new_mode=mode,
             )
 
+    def test_multiplayer_only_skips_single_player_sessions(self):
+        single_player_session = GameSession.objects.create(
+            players_max=1,
+        )
+        all_sessions = GameSession.objects.all()
+        singleplayer_sessions = all_sessions.filter(players_max=1)
+        multiplayer_sessions = all_sessions.multiplayer_only()
+        single_count = singleplayer_sessions.count()
+        multi_count = multiplayer_sessions.count()
+
+        self.assertNotIn(single_player_session, multiplayer_sessions)
+        self.assertEqual(all_sessions.count(), single_count + multi_count)
+
 
 class GameSessionSaveResultsTestCase(TestCase):
     """

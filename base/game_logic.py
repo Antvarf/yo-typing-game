@@ -136,12 +136,14 @@ class InvalidOperationError(ControllerError):
 class WordListProvider:
     def __init__(self):
         self._words = []
-        self._extend_word_list()
+        self._new_word_iterator = iter([])
+        self._extend_word_list(init=True)
 
-    def _extend_word_list(self):
+    def _extend_word_list(self, init=False):
         word_page = self._get_new_word_page()
         self._words.extend(word_page)
-        self._new_word_iterator = iter(word_page)
+        if not init:
+            self._new_word_iterator = iter(word_page)
 
     @staticmethod
     def _get_new_word_page(n: int = 100) -> list[str]:

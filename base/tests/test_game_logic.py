@@ -15,7 +15,7 @@ from base.game_logic import (
     GameOptions,
     InvalidModeChoiceError,
     PlayerJoinRefusedError,
-    InvalidOperationError,
+    InvalidOperationError, WordListProvider,
 )
 from base.models import (
     GameSession,
@@ -25,7 +25,22 @@ from base.models import (
 
 
 class WordListProviderTestCase(TestCase):
-    pass
+    def setUp(self):
+        self.word_provider = WordListProvider()
+
+    def test_get_new_word_basic(self):
+        words_count = len(self.word_provider.words)
+        self.word_provider.get_new_word()
+
+        self.assertEqual(len(self.word_provider.words), words_count*2)
+
+    def test_get_new_word_overflow_gets_new_word_page(self):
+        words_count = len(self.word_provider.words)
+
+        for i in range(words_count + 1):
+            self.word_provider.get_new_word()
+
+        self.assertEqual(len(self.word_provider.words), words_count*3)
 
 
 class PlayerControllerTestCase(TestCase):

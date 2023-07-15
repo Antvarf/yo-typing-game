@@ -3,6 +3,7 @@ import time
 
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
 from base.game_logic import (
     Event,
@@ -1633,7 +1634,7 @@ class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertEqual(self.controller._options.win_condition,
                          GameOptions.WIN_CONDITION_BEST_SCORE)
         self.assertEqual(self.controller._options.team_mode, False)
-        self.assertEqual(self.controller._options.speed_up_percent, 100.0)
+        self.assertEqual(self.controller._options.speed_up_percent, 0)
         self.assertEqual(self.controller._options.points_difference, 0)
         self.assertEqual(self.controller._options.time_per_word, 0.0)
         self.assertEqual(self.controller._options.strict_mode, False)
@@ -1704,7 +1705,7 @@ class IronWallGameControllerTestCase(SingleGameControllerTestCase):
         self.assertEqual(self.controller._options.win_condition,
                          GameOptions.WIN_CONDITION_BEST_SCORE)
         self.assertEqual(self.controller._options.team_mode, False)
-        self.assertEqual(self.controller._options.speed_up_percent, 100.0)
+        self.assertEqual(self.controller._options.speed_up_percent, 0)
         self.assertEqual(self.controller._options.points_difference, 0)
         self.assertEqual(self.controller._options.time_per_word, 0.0)
         self.assertEqual(self.controller._options.strict_mode, True)
@@ -1718,7 +1719,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertEqual(self.controller._options.win_condition,
                          GameOptions.WIN_CONDITION_SURVIVED)
         self.assertEqual(self.controller._options.team_mode, False)
-        self.assertEqual(self.controller._options.speed_up_percent, 140.0)
+        self.assertEqual(self.controller._options.speed_up_percent, 40.0)
         self.assertEqual(self.controller._options.points_difference, 0)
         self.assertEqual(self.controller._options.time_per_word, 0.5)
         self.assertEqual(self.controller._options.strict_mode, False)
@@ -1781,6 +1782,81 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
                          Event.SERVER_PLAYERS_UPDATE)
         self.assertEqual(self.controller._options.game_duration,
                          players_after_submission[0]['timeLeft'])
+
+    def test_time_left_decreases_exponentially(self):
+        """
+        BIBUS:
+            1. When half the game_duration passes, time_left decreases faster
+        ---
+        If speed_up_percent:
+        1. Controller has the ._increase_time_speed_at
+        2. ._time_speed is considered at every tick
+        3. When time surpasses ._increase_time_speed_at, it gets recalculated
+           in couple with ._time_speed
+        Else:
+        1. ._time_speed = 1
+        """
+        join_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=self.player_record),
+        )
+        trigger_tick_event = Event(
+            type=Event.TRIGGER_TICK,
+            data=PlayerMessage(
+                player=self.player_record,
+            ),
+        )
+        self.controller._options.game_duration = 2
+        self.controller.player_event(join_event)
+        self.controller.set_host(self.player_record)
+        local_player = self.controller._get_player(self.player_record)
+
+        # Before start
+        # TODO: check time_left decrease for a player
+        self.assertEqual(self.controller._time_speed, 1)
+        self.assertIsNone(self.controller._increase_time_speed_at)
+        self.assertIsNone(local_player.time_left)
+
+        # Right after start
+        self.controller._start_game()
+        self.assertEqual(self.controller._time_speed, 1)
+        self.assertEqual(self.controller._increase_time_speed_at,
+                         self.controller._session.started_at + timezone.timedelta(seconds=self.controller._options.game_duration / 2))
+        self.assertEqual(local_player.time_left, self.controller._options.game_duration)
+
+        # First increase
+        sleep_seconds = (self.controller._increase_time_speed_at - timezone.now()).total_seconds()
+        time.sleep(sleep_seconds)
+        prev_increase = self.controller._increase_time_speed_at
+        self.controller.player_event(trigger_tick_event)
+        self.assertEqual(self.controller._time_speed,
+                         (1 + self.controller._options.speed_up_percent / 100))
+        self.assertEqual(self.controller._increase_time_speed_at,
+                         prev_increase + timezone.timedelta(seconds=self.controller._options.game_duration / 2 / self.controller._time_speed))
+        # time_left decreased with multiplier == 1
+        # FIXME: use GreaterEqual and LessEqual for time boundaries instead of this
+        self.assertAlmostEqual(
+            local_player.time_left,
+            self.controller._options.game_duration - (prev_increase - self.controller._session.started_at).total_seconds(),
+            places=2,
+        )
+
+        # Second increase
+        time.sleep((self.controller._increase_time_speed_at - timezone.now()).total_seconds())
+        prev_increase = self.controller._increase_time_speed_at
+        prev_time_speed = self.controller._time_speed
+        self.controller.player_event(trigger_tick_event)
+        self.assertEqual(self.controller._time_speed,
+                         prev_time_speed * (1 + self.controller._options.speed_up_percent / 100))
+        self.assertEqual(self.controller._increase_time_speed_at,
+                         prev_increase + timezone.timedelta(seconds=self.controller._options.game_duration / 2 / self.controller._time_speed))
+        # time_left decreased with multiplier == 1.4
+        self.assertAlmostEqual(
+            local_player.time_left,
+            self.controller._options.game_duration - (
+                        prev_increase - self.controller._session.started_at).total_seconds(),
+            places=2,
+        )
 
     def test_is_out_is_initially_false(self):
         join_event = Event(
@@ -1964,7 +2040,7 @@ class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
         self.assertEqual(self.controller._options.win_condition,
                          GameOptions.WIN_CONDITION_BEST_SCORE)
         self.assertEqual(self.controller._options.team_mode, True)
-        self.assertEqual(self.controller._options.speed_up_percent, 100.0)
+        self.assertEqual(self.controller._options.speed_up_percent, 0)
         self.assertEqual(self.controller._options.points_difference, 50)
         self.assertEqual(self.controller._options.time_per_word, 0.0)
         self.assertEqual(self.controller._options.strict_mode, False)

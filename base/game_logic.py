@@ -276,7 +276,7 @@ class GameOptions:
     win_condition: str = WIN_CONDITION_BEST_SCORE
     team_mode: bool = False
     # TODO: test defaults here
-    speed_up_percent: float = 100.0
+    speed_up_percent: float = 0.0
     points_difference: int = 0
     time_per_word: float = 0.0
     strict_mode: bool = False
@@ -526,6 +526,8 @@ class GameController:
         self._event_handlers = self._init_event_handlers()
         self._modes_available = GameModes.labels
         self._game_begins_at = None
+        self._time_speed = 1
+        self._increase_time_speed_at = None
         self._last_tick = None
 
         self._host_id = None
@@ -674,12 +676,18 @@ class GameController:
 
                 for c in self._competitors:
                     # TODO: implement speed_up_percent setting
-                    c.time_left -= time_delta.total_seconds()
+                    # TODO: cover time_left with tests
+                    c.time_left -= time_delta.total_seconds() * self._time_speed
                     is_survival = self._options.win_condition \
                         == GameOptions.WIN_CONDITION_SURVIVED
                     if is_survival and c.time_left <= 0:
                         c.time_left = 0
                         c.is_out = True
+
+                if self._options.speed_up_percent:
+                    if self._last_tick >= self._increase_time_speed_at:
+                        self._time_speed *= (1 + self._options.speed_up_percent / 100)
+                        self._increase_time_speed_at += timezone.timedelta(seconds=self._options.game_duration / 2 / self._time_speed)
 
             events.append(self._get_players_update_event())
 
@@ -776,7 +784,7 @@ class GameController:
             options.game_duration = 30
             options.win_condition = GameOptions.WIN_CONDITION_SURVIVED
             options.time_per_word = 0.5
-            options.speed_up_percent = 140.0
+            options.speed_up_percent = 40.0
         elif self._session.mode == GameModes.TUGOFWAR:
             options.game_duration = 0
             options.team_mode = True
@@ -895,6 +903,8 @@ class GameController:
         self._session.start_game()
 
         self._post_start()
+        if self._options.speed_up_percent:
+            self._increase_time_speed_at = self._session.started_at + timezone.timedelta(seconds=self._options.game_duration / 2)
 
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_START_GAME, data={})

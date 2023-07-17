@@ -179,13 +179,6 @@ class PlayerControllerTestCase(TestCase):
             self.controller.set_ready_state(self.player, False)
         self.assertEqual(self.controller.ready_count, 0)
 
-    def test_set_player_vote_increases_voted_count_only_once(self):
-        self.controller.add_player(self.player)
-        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
-        self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
-
-        self.assertEqual(self.controller.voted_count, 1)
-
     def test_set_player_vote_raises_error_for_invalid_mode_choice(self):
         self.controller.add_player(self.player)
         with self.assertRaisesMessage(InvalidModeChoiceError,
@@ -207,6 +200,11 @@ class PlayerControllerTestCase(TestCase):
         self.controller.set_player_vote(self.player, GameModes.SINGLE.label)
 
         self.assertEqual(self.controller.votes[GameModes.SINGLE.label], 1)
+
+        self.controller.set_player_vote(self.player, GameModes.IRONWALL.label)
+
+        self.assertEqual(self.controller.votes[GameModes.SINGLE.label], 0)
+        self.assertEqual(self.controller.votes[GameModes.IRONWALL.label], 1)
 
     def test_set_player_vote_raises_key_error_for_nonexistent_player(self):
         with self.assertRaises(KeyError):

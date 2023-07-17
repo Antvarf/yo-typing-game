@@ -430,7 +430,7 @@ class PlayerController:
         local_player = self.get_player(player)
         if local_player.voted_for is None:
             self.voted_count += 1
-            local_player.voted_for = vote
+        local_player.voted_for = vote
 
     def set_player_team(self, player: Player, team: str):
         if not self._options.team_mode:

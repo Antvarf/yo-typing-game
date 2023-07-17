@@ -1719,7 +1719,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertEqual(self.controller._options.win_condition,
                          GameOptions.WIN_CONDITION_SURVIVED)
         self.assertEqual(self.controller._options.team_mode, False)
-        self.assertEqual(self.controller._options.speed_up_percent, 40.0)
+        self.assertEqual(self.controller._options.speed_up_percent, 15.0)
         self.assertEqual(self.controller._options.points_difference, 0)
         self.assertEqual(self.controller._options.time_per_word, 0.5)
         self.assertEqual(self.controller._options.strict_mode, False)

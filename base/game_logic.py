@@ -672,22 +672,21 @@ class GameController:
             if self._options.game_duration:
                 prev_tick = self._last_tick or self._session.started_at
                 self._last_tick = timezone.now()
-                time_delta = self._last_tick - prev_tick
+
+                now_psec = (
+                    self._last_tick - self._session.started_at
+                ).total_seconds() ** (1 + self._options.speed_up_percent/100)
+                prev_tick_psec = (
+                    prev_tick - self._session.started_at
+                ).total_seconds() ** (1 + self._options.speed_up_percent/100)
 
                 for c in self._competitors:
-                    # TODO: implement speed_up_percent setting
-                    # TODO: cover time_left with tests
-                    c.time_left -= time_delta.total_seconds() * self._time_speed
+                    c.time_left -= now_psec - prev_tick_psec
                     is_survival = self._options.win_condition \
                         == GameOptions.WIN_CONDITION_SURVIVED
                     if is_survival and c.time_left <= 0:
                         c.time_left = 0
                         c.is_out = True
-
-                if self._options.speed_up_percent:
-                    if self._last_tick >= self._increase_time_speed_at:
-                        self._time_speed *= (1 + self._options.speed_up_percent / 100)
-                        self._increase_time_speed_at += timezone.timedelta(seconds=self._options.game_duration / 2 / self._time_speed)
 
             events.append(self._get_players_update_event())
 
@@ -903,8 +902,6 @@ class GameController:
         self._session.start_game()
 
         self._post_start()
-        if self._options.speed_up_percent:
-            self._increase_time_speed_at = self._session.started_at + timezone.timedelta(seconds=self._options.game_duration / 2)
 
         event = Event(target=Event.TARGET_ALL,
                       type=Event.SERVER_START_GAME, data={})

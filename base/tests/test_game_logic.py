@@ -1806,55 +1806,40 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
                 player=self.player_record,
             ),
         )
-        self.controller._options.game_duration = 2
+        self.controller._options.game_duration = 4
         self.controller.player_event(join_event)
         self.controller.set_host(self.player_record)
         local_player = self.controller._get_player(self.player_record)
 
         # Before start
-        # TODO: check time_left decrease for a player
         self.assertEqual(self.controller._time_speed, 1)
         self.assertIsNone(self.controller._increase_time_speed_at)
         self.assertIsNone(local_player.time_left)
 
         # Right after start
         self.controller._start_game()
-        self.assertEqual(self.controller._time_speed, 1)
-        self.assertEqual(self.controller._increase_time_speed_at,
-                         self.controller._session.started_at + timezone.timedelta(seconds=self.controller._options.game_duration / 2))
         self.assertEqual(local_player.time_left, self.controller._options.game_duration)
 
         # First increase
-        sleep_seconds = (self.controller._increase_time_speed_at - timezone.now()).total_seconds()
-        time.sleep(sleep_seconds)
-        prev_increase = self.controller._increase_time_speed_at
+        time.sleep(1)
         self.controller.player_event(trigger_tick_event)
-        self.assertEqual(self.controller._time_speed,
-                         (1 + self.controller._options.speed_up_percent / 100))
-        self.assertEqual(self.controller._increase_time_speed_at,
-                         prev_increase + timezone.timedelta(seconds=self.controller._options.game_duration / 2 / self.controller._time_speed))
-        # time_left decreased with multiplier == 1
-        # FIXME: use GreaterEqual and LessEqual for time boundaries instead of this
         self.assertAlmostEqual(
             local_player.time_left,
-            self.controller._options.game_duration - (prev_increase - self.controller._session.started_at).total_seconds(),
+            self.controller._options.game_duration - 1,
             places=2,
         )
 
         # Second increase
-        time.sleep((self.controller._increase_time_speed_at - timezone.now()).total_seconds())
-        prev_increase = self.controller._increase_time_speed_at
-        prev_time_speed = self.controller._time_speed
+        time.sleep(1)
+        c = self.controller._options.speed_up_percent / 100
+        actual_time_passed = timezone.now() \
+                             - self.controller._session.started_at
+        time_left_expected = self.controller._options.game_duration \
+                             - actual_time_passed.total_seconds()**(1+c)
         self.controller.player_event(trigger_tick_event)
-        self.assertEqual(self.controller._time_speed,
-                         prev_time_speed * (1 + self.controller._options.speed_up_percent / 100))
-        self.assertEqual(self.controller._increase_time_speed_at,
-                         prev_increase + timezone.timedelta(seconds=self.controller._options.game_duration / 2 / self.controller._time_speed))
-        # time_left decreased with multiplier == 1.4
         self.assertAlmostEqual(
             local_player.time_left,
-            self.controller._options.game_duration - (
-                        prev_increase - self.controller._session.started_at).total_seconds(),
+            time_left_expected,
             places=2,
         )
 
@@ -1883,12 +1868,10 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         initial_state_event, _ = self.controller.player_event(join_event)
 
         self.controller._start_game()
-        time.sleep(self.controller._options.game_duration)
+        time.sleep(max(self.controller._options.game_duration, 1))
 
         self.controller.set_host(self.player_record)
-        players_update_event_1, _ = self.controller.player_event(
-            trigger_tick_event,
-        )
+        players_update_event_1, _ = self.controller.player_event(trigger_tick_event)
         self.assertTrue(players_update_event_1.data['players'][0]['isOut'])
 
     def test_cannot_submit_words_when_out(self):
@@ -1926,7 +1909,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
 
         self.controller._start_game()
         local_p1.time_left = 9000
-        time.sleep(self.controller._options.game_duration)
+        time.sleep(max(self.controller._options.game_duration, 1))
 
         self.controller.set_host(self.player_record)
         self.controller.player_event(
@@ -1958,12 +1941,10 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
 
         self.controller._start_game()
         local_p1.time_left = 0.5
-        time.sleep(local_p1.time_left)
+        time.sleep(max(local_p1.time_left, 1))
 
         self.controller.set_host(self.player_record)
-        _, game_over_event = self.controller.player_event(
-            trigger_tick_event,
-        )
+        _, game_over_event = self.controller.player_event(trigger_tick_event)
 
         self.assertEqual(game_over_event.type, Event.SERVER_GAME_OVER)
         self.assertEqual(game_over_event.target, Event.TARGET_ALL)
@@ -1997,12 +1978,10 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.controller._start_game()
         local_p1.time_left = 9000
         local_p2.time_left = 0.5
-        time.sleep(local_p2.time_left)
+        time.sleep(max(local_p2.time_left, 1))
 
         self.controller.set_host(self.player_record)
-        _, game_over_event = self.controller.player_event(
-            trigger_tick_event,
-        )
+        _, game_over_event = self.controller.player_event(trigger_tick_event)
 
         self.assertEqual(game_over_event.type, Event.SERVER_GAME_OVER)
         self.assertEqual(game_over_event.target, Event.TARGET_ALL)

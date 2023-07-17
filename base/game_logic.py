@@ -783,7 +783,7 @@ class GameController:
             options.game_duration = 30
             options.win_condition = GameOptions.WIN_CONDITION_SURVIVED
             options.time_per_word = 0.5
-            options.speed_up_percent = 40.0
+            options.speed_up_percent = 15.0
         elif self._session.mode == GameModes.TUGOFWAR:
             options.game_duration = 0
             options.team_mode = True

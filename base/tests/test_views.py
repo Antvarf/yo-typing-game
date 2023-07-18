@@ -217,15 +217,19 @@ class SessionTestCase(APITestCase):
         for obj in response.data:
             self.assertEqual(obj.keys(), self.object_fields)
 
-    def test_single_player_and_finished_sessions_are_not_listed(self):
+    def test_single_player_and_not_joinable_sessions_are_not_listed(self):
         single_player_session = GameSession.objects.create(
             mode=GameModes.SINGLE,
             players_max=1,
         )
-        finished_session = GameSession.objects.create(
-            mode=GameModes.SINGLE,
-            is_finished=True,
-        )
+
+        started_session = GameSession.objects.create(mode=GameModes.SINGLE)
+        started_session.start_game()
+
+        finished_session = GameSession.objects.create(mode=GameModes.SINGLE)
+        finished_session.start_game()
+        finished_session.game_over()
+
         url = reverse('yo_game:gamesession-list')
         response = self.client.get(url)
 
@@ -234,6 +238,7 @@ class SessionTestCase(APITestCase):
             self.assertEqual(obj.keys(), self.object_fields)
             self.assertNotEqual(obj['players_max'], 1)
             self.assertNotEqual(obj['id'], single_player_session.id)
+            self.assertNotEqual(obj['id'], started_session.id)
             self.assertNotEqual(obj['id'], finished_session.id)
 
     def test_retreive(self):

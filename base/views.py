@@ -57,5 +57,7 @@ class SessionViewSet(GenericViewSet, ListModelMixin,
             if self.action == 'list':
                 return self.queryset.multiplayer_only().filter(
                     is_finished=False,
+                ).filter(
+                    started_at=None,
                 )
         return self.queryset.all()

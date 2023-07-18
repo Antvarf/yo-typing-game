@@ -1303,7 +1303,9 @@ class BaseTests:
             self.assertEqual(server_events[0].target, Event.TARGET_ALL)
             self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
             self.assertEqual(server_events[1].target, Event.TARGET_ALL)
-            self.assertEqual(server_events[1].type, Event.SERVER_NEW_GAME)
+            self.assertEqual(server_events[1].type, Event.SERVER_VOTES_UPDATE)
+            self.assertEqual(server_events[2].target, Event.TARGET_ALL)
+            self.assertEqual(server_events[2].type, Event.SERVER_NEW_GAME)
             self.assertEqual(self.session_record.players_now, players_before + 1)
 
         def test_game_begins_is_not_fired_while_playing(self):
@@ -1370,9 +1372,11 @@ class BaseTests:
             server_events = self.controller.player_event(p2_left_event)
             self.session_record.refresh_from_db()
 
+            self.assertEqual(len(server_events), 2)
             self.assertEqual(server_events[0].target, Event.TARGET_ALL)
             self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
-            self.assertEqual(len(server_events), 1)
+            self.assertEqual(server_events[1].target, Event.TARGET_ALL)
+            self.assertEqual(server_events[1].type, Event.SERVER_VOTES_UPDATE)
             self.assertEqual(self.session_record.players_now, players_before + 1)
 
         def test_new_game_is_not_fired_while_prep(self):

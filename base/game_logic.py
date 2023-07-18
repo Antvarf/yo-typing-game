@@ -605,6 +605,8 @@ class GameController:
                     self._stage_start_game(self._options.start_delay)
             if not self._player_count and self._state is self.STATE_PLAYING:
                 events.append(self._game_over())
+            if self._state is self.STATE_VOTING and self._player_count:
+                events.append(self._get_votes_update_event())
             if self._is_voting_finished():
                 events.append(self._create_new_game())
         return events

@@ -1005,7 +1005,7 @@ class GameController:
         new_session = self._session.create_from_previous(
             new_mode=new_mode_value,
         )
-        self._new_session_id = str(new_session.session_id)
+        self._new_session_id = str(new_session.id)
         self._state = None
         event = self._get_new_game_event()
         return event

@@ -13,6 +13,7 @@ def get_regular_words():
 
 
 def get_yo_words():
+    # TODO: move words to the app folder and take them from there
     with open(os.path.join(settings.BASE_DIR, "yo_words.json"), "r") as e:
         words = json.loads(e.read())
     return words

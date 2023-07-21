@@ -47,11 +47,13 @@ ASGI_APPLICATION = 'E.routing.application'
 HOSTS_LAYER_NAME = 'SESSION_HOSTS'
 
 # FIXME: come up with an easy way to split up test config from prod
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
 CHANNEL_LAYERS = {
     'default': {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("redis", 6379)],
+            "hosts": [(REDIS_HOST, REDIS_PORT)],
         },
     },
 }

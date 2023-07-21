@@ -1,0 +1,42 @@
+name: Test & deploy
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis
+        # Set health checks to wait until redis has started
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps port 6379 on service container to the host
+          - 6379:6379
+    steps:
+    - uses: actions/checkout@v3
+    - name: Write SSH keys and hosts data
+      run: |      
+        install -m 600 -D /dev/null ~/.ssh/id_ed25519
+        echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+        ssh-keyscan -H "${{ secrets.SSH_HOST }}" > ~/.ssh/known_hosts
+    - name: Build image & run tests
+      run: |
+        echo 
+        docker build . -t ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:$GITHUB_RUN_NUMBER
+        docker run yo_typing_backend:latest /app/manage.py test        
+    - name: Upload new image to registry
+      run: |
+        docker login -u=${{ secrets.REGISTRY_USER }} -p=${{ secrets.REGISTRY_PASSWORD }} ${{ secrets.REGISTRY_HOST }}
+        docker push ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:$GITHUB_RUN_NUMBER
+    - name: Restart production containers
+      run: |
+        ssh mike@${{ secrets.SSH_HOST }} sudo docker-compose up -d

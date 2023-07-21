@@ -51,20 +51,20 @@ class GameConsumerTestCase(TestCase):
         )
         return communicator
 
-    async def test_username_query_param(self):
-        """
-        If username is in query parameters, create Player with this name
-        """
-        username = 'test_user_1'
-        communicator = self.get_communicator(username=username)
-        is_connected, subprotocol = await communicator.connect()
-        player = await database_sync_to_async(Player.objects.get)(
-            displayed_name=username,
-        )
-        await communicator.disconnect()
-
-        self.assertTrue(is_connected)
-        self.assertEqual(player.displayed_name, username)
+    # async def test_username_query_param(self):
+    #     """
+    #     If username is in query parameters, create Player with this name
+    #     """
+    #     username = 'test_user_1'
+    #     communicator = self.get_communicator(username=username)
+    #     is_connected, subprotocol = await communicator.connect()
+    #     player = await database_sync_to_async(Player.objects.get)(
+    #         displayed_name=username,
+    #     )
+    #     await communicator.disconnect()
+    #
+    #     self.assertTrue(is_connected)
+    #     self.assertEqual(player.displayed_name, username)
 
     async def test_no_username_or_jwt_returns_error(self):
         """

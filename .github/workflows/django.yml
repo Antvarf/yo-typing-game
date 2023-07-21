@@ -30,13 +30,12 @@ jobs:
         ssh-keyscan -H "${{ secrets.SSH_HOST }}" > ~/.ssh/known_hosts
     - name: Build image & run tests
       run: |
-        echo 
-        docker build . -t ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:$GITHUB_RUN_NUMBER
-        docker run yo_typing_backend:latest /app/manage.py test        
+        docker build . -t ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
+        docker run ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER /app/manage.py test        
     - name: Upload new image to registry
       run: |
         docker login -u=${{ secrets.REGISTRY_USER }} -p=${{ secrets.REGISTRY_PASSWORD }} ${{ secrets.REGISTRY_HOST }}
-        docker push ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:$GITHUB_RUN_NUMBER
+        docker push ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
     - name: Restart production containers
       run: |
         ssh mike@${{ secrets.SSH_HOST }} sudo docker-compose up -d

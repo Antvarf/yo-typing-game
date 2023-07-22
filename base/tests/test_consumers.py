@@ -34,9 +34,9 @@ class GameConsumerTestCase(TestCase):
     """
     consumer_cls = GameConsumer
 
-    async def setUp(self):
-        self.session_record = database_sync_to_async(GameSession.objects.create)()
-        self.other_session_record = database_sync_to_async(GameSession.objects.create)()
+    def setUp(self):
+        self.session_record = GameSession.objects.create()
+        self.other_session_record = GameSession.objects.create()
         self.application = application
 
     async def get_communicator(self, session_id: str = None, **kwargs):

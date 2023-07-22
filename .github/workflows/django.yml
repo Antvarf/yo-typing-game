@@ -34,7 +34,7 @@ jobs:
         docker run --network=host -e REDIS_HOST='127.0.0.1' ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER /app/manage.py test        
     - name: Upload new image to registry
       run: |
-        docker login -u=${{ secrets.REGISTRY_USER }} -p=${{ secrets.REGISTRY_PASSWORD }} ${{ secrets.REGISTRY_HOST }}
+        docker login -u=${{ secrets.REGISTRY_USER }} -p="${{ secrets.REGISTRY_PASSWORD }}" ${{ secrets.REGISTRY_HOST }}
         docker push ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
     - name: Restart production containers
       run: |

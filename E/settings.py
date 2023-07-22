@@ -48,7 +48,6 @@ HOSTS_LAYER_NAME = 'SESSION_HOSTS'
 
 # FIXME: come up with an easy way to split up test config from prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
-print(f'!!! REDIS HOST VALUE !!! -- {REDIS_HOST}')
 REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
 CHANNEL_LAYERS = {
     'default': {

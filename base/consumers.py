@@ -154,14 +154,14 @@ class GameConsumer(JsonWebsocketConsumer):
     def _add_self_to_hosts(self):
         self.controller.set_host(self.player)
         async_to_sync(self.channel_layer.group_add)(
-            settings.HOSTS_LAYER_NAME,
+            settings.HOSTS_GROUP_NAME,
             self.channel_name,
         )
 
     def _remove_self_from_hosts(self):
         # controller selects the new host on its own
         async_to_sync(self.channel_layer.group_discard)(
-            settings.HOSTS_LAYER_NAME,
+            settings.HOSTS_GROUP_NAME,
             self.channel_name,
         )
 
@@ -224,7 +224,7 @@ class GameConsumer(JsonWebsocketConsumer):
 class GameTickConsumer(SyncConsumer):
     def game_tick(self, message):
         async_to_sync(self.channel_layer.group_send)(
-            settings.HOSTS_LAYER_NAME,
+            settings.HOSTS_GROUP_NAME,
             {
                 "type": "session.tick",
             },

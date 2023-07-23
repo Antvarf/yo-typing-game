@@ -44,7 +44,8 @@ ROOT_URLCONF = 'E.urls'
 WSGI_APPLICATION = 'E.wsgi.application'
 ASGI_APPLICATION = 'E.routing.application'
 
-HOSTS_LAYER_NAME = 'SESSION_HOSTS'
+HOSTS_GROUP_NAME = 'SESSION_HOSTS'
+TEST_LAYER_NAME = 'testenv'
 
 # FIXME: come up with an easy way to split up test config from prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
@@ -55,6 +56,9 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             "hosts": [(REDIS_HOST, REDIS_PORT)],
         },
+    },
+    TEST_LAYER_NAME: {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
 }
 

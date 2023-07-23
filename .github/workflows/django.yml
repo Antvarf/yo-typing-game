@@ -27,4 +27,5 @@ jobs:
         docker push --all-tags ${{ secrets.REGISTRY_HOST }}/yo_typing_backend
     - name: Restart production containers
       run: |
+        ssh mike@${{ secrets.SSH_HOST }} sudo docker pull ${{ secrets.REGISTRY_HOST }}/yo_typing_backend
         ssh mike@${{ secrets.SSH_HOST }} sudo docker-compose up -d

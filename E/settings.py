@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'beatserver',
     'channels',
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -69,11 +70,18 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.UserRateThrottle',
     ),
-    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_THROTTLE_RATES': {
         'loginAttempts': '10/hr',
         'user': '1000/min'
     }
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Yo API',
+    'DESCRIPTION': 'This API provides endpoints for managing players and game '
+                   'sessions',
+    'VERSION': '2.1.1',
 }
 
 SIMPLE_JWT = {

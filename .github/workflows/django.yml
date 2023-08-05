@@ -32,4 +32,4 @@ jobs:
     - name: Push new app static to server
       run: |
         docker cp test_container:/app/static static
-        rsync -r static/* mike@{{ secrets.SSH_HOST }}:django_static
+        rsync -r static/* mike@${{ secrets.SSH_HOST }}:django_static

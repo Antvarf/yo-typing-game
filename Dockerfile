@@ -7,3 +7,4 @@ RUN apt-get update && apt-get -y install daphne python3-dev build-essential libm
 COPY . /app/
 WORKDIR /app/
 RUN python3 -m pip install -r requirements.txt
+RUN python3 /app/manage.py collectstatic --no-input

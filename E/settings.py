@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.admin',
     'base',
     'jwt_accounts',
     'rest_framework',
@@ -45,10 +46,26 @@ ROOT_URLCONF = 'E.urls'
 WSGI_APPLICATION = 'E.wsgi.application'
 ASGI_APPLICATION = 'E.routing.application'
 
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+STATIC_ROOT = 'static'
+STATIC_URL = 'static/'
+
 HOSTS_GROUP_NAME = 'SESSION_HOSTS'
 TEST_LAYER_NAME = 'testenv'
 
-# FIXME: come up with an easy way to split up test config from prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
 REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
 CHANNEL_LAYERS = {
@@ -81,7 +98,7 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Yo API',
     'DESCRIPTION': 'This API provides endpoints for managing players and game '
                    'sessions',
-    'VERSION': '2.1.1',
+    'VERSION': '2.1.2',
 }
 
 SIMPLE_JWT = {

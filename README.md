@@ -51,9 +51,9 @@ Modes available currently are:
 * **Ironwall** - same as classic, however backspace is disabled, so be
   careful! Can be used to improve typing accuracy.
 * **Endless** - only 30 seconds are given, however you *can* take them back
-  by entering the words properly, and the word amount is infinite! At the
-  same time, the clock has also an advantage of ticking faster at every moment, so
-  don't let it get too much ahead. Last player standing wins!
-* **Tug Of War** - team vs team! Type as many of the words correctly as
+  by entering the words properly, and the word amount is infinite! However,
+  the clock is at advantage of ticking faster at every moment, so
+  don't let it get too much ahead :^ Last player standing wins!
+* **Tug Of War** - team vs team! Type as many words correctly as
   fast as you can and get ahead of the opposite team by pulling the tug
   on your side! Team points difference is what gets you a win.

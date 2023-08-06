@@ -61,7 +61,7 @@ TEMPLATES = [
 ]
 
 STATIC_ROOT = 'static'
-STATIC_URL = 'static/'
+STATIC_URL = 'django_static/'
 
 HOSTS_GROUP_NAME = 'SESSION_HOSTS'
 TEST_LAYER_NAME = 'testenv'

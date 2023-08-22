@@ -5,8 +5,8 @@
 
 - [Overview](#overview)
 - [Features](#features)
-  * [Single mode and multiplayer](#single-mode-and-multiplayer)
   * [Various game modes](#various-game-modes)
+  * [Play with your friends](#play-with-your-friends)
   * [Save your stats](#save-your-stats)
   * [Moreeee!](#moreeee)
 - [Built With](#built-with)
@@ -23,17 +23,6 @@ online game with an accent put on words using cyrillic letter "Ё" present.
 
 ## Features
 
-### Single mode and multiplayer
-
-This application can help by improving your typing speed while also
-providing fun competition experience in the multiplayer with your friends!
-
-### Save your stats
-
-You can also keep track of your stats (average and best typing speed +
-more) if you sign up, as well as take place of honor in the leaderboard
-among the others if you do 🐈
-
 ### Various game modes
 
 Modes available currently are:
@@ -48,6 +37,17 @@ Modes available currently are:
 * **Tug Of War** - team vs team! Type as many words correctly as
   fast as you can and get ahead of the opposite team by pulling the tug
   on your side! Team points difference is what gets you a win.
+
+### Play with your friends
+
+This application can help by improving your typing speed while also
+providing fun competition experience in the multiplayer with your friends!
+
+### Save your stats
+
+You can also keep track of your stats (average and best typing speed +
+more) if you sign up, as well as take place of honor in the leaderboard
+among the others if you do 🐈
 
 ### Moreeee!
 

@@ -17,6 +17,8 @@ jobs:
         install -m 600 -D /dev/null ~/.ssh/id_ed25519
         echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
         ssh-keyscan -H "${{ secrets.SSH_HOST }}" > ~/.ssh/known_hosts
+    - uses: docker/setup-buildx-action@v2
+      name: Set up Docker Buildx
     - uses: docker/build-push-action@v4
       name: Build application image
       with:

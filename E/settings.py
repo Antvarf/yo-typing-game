@@ -14,6 +14,8 @@ DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
+VERSION = os.getenv('VERSION', 'v2.0.0-unspecified')
+
 INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -98,7 +100,7 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Yo API',
     'DESCRIPTION': 'This API provides endpoints for managing players and game '
                    'sessions',
-    'VERSION': '2.1.2',
+    'VERSION': VERSION,
 }
 
 SIMPLE_JWT = {

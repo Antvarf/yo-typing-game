@@ -27,6 +27,8 @@ jobs:
         tags: |
           ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:${{ github.ref_name }}
           ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:latest
+        build-args: |
+          GIT_VERSION_TAG=${{ github.ref_name }}
     - name: Run tests & collect app static
       run: |
         docker run --name test_container ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:${{ github.ref_name }} /app/manage.py test
@@ -48,6 +50,8 @@ jobs:
         tags: |
           ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:${{ github.ref_name }}
           ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:latest
+        build-args: |
+          GIT_VERSION_TAG=${{ github.ref_name }}
     - name: Restart production containers
       run: |
         ssh mike@${{ secrets.SSH_HOST }} sudo docker pull ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend

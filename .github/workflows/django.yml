@@ -26,6 +26,9 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         load: true
+        tags: |
+          ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
+          ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:latest
     - name: Run tests & collect app static
       run: |
         docker run --name test_container ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER /app/manage.py test

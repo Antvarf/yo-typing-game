@@ -27,11 +27,11 @@ jobs:
         cache-to: type=gha,mode=max
         load: true
         tags: |
-          ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
+          ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:2.${{ github.run_number }}
           ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:latest
     - name: Run tests & collect app static
       run: |
-        docker run --name test_container ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER /app/manage.py test
+        docker run --name test_container ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:2.${{ github.run_number }} /app/manage.py test
         docker cp test_container:/app/static static
         docker rm test_container
     - name: Login to container registry
@@ -48,7 +48,7 @@ jobs:
         cache-to: type=gha,mode=max
         push: true
         tags: |
-          ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
+          ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:2.${{ github.run_number }}
           ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_USER }}/yo_typing_backend:latest
     - name: Restart production containers
       run: |

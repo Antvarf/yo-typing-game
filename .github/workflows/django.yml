@@ -8,28 +8,47 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Write SSH keys and hosts data
+    - name: Init with SSH keys and hosts data
       run: |      
         install -m 600 -D /dev/null ~/.ssh/id_ed25519
         echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
         ssh-keyscan -H "${{ secrets.SSH_HOST }}" > ~/.ssh/known_hosts
-    - name: Build image & run tests
+    - uses: docker/build-push-action@v4
+      name: Build application image
+      with:
+        context: .
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        load: true
+    - name: Run tests & collect app static
       run: |
-        docker build . -t ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER  -t ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:latest
         docker run --name test_container ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER /app/manage.py test
-    - name: Upload new image to registry
-      run: |
-        docker login -u=${{ secrets.REGISTRY_USER }} -p="${{ secrets.REGISTRY_PASSWORD }}" ${{ secrets.REGISTRY_HOST }}
-        docker push --all-tags ${{ secrets.REGISTRY_HOST }}/yo_typing_backend
+        docker cp test_container:/app/static static
+        docker rm test_container
+    - name: Login to container registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ secrets.REGISTRY_HOST }}
+        username: ${{ secrets.REGISTRY_USER }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+    - uses: docker/build-push-action@v4
+      name: Push application image
+      with:
+        context: .
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        push: true
+        tags: |
+          ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:2.$GITHUB_RUN_NUMBER
+          ${{ secrets.REGISTRY_HOST }}/yo_typing_backend:latest
     - name: Restart production containers
       run: |
         ssh mike@${{ secrets.SSH_HOST }} sudo docker pull ${{ secrets.REGISTRY_HOST }}/yo_typing_backend
         ssh mike@${{ secrets.SSH_HOST }} sudo docker-compose up -d
     - name: Push new app static to server
       run: |
-        docker cp test_container:/app/static static
         rsync -r static/* mike@${{ secrets.SSH_HOST }}:django_static

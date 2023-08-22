@@ -1,5 +1,5 @@
 # Yo-typing (версия 2.1.2) <img src="../favicon.png" height="25px">
-For english version of the docs [click here](../README_en.md)
+For english version of the docs [click here](../README.md)
 
 ## Содержание
 

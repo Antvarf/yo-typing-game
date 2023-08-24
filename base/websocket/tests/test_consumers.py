@@ -4,26 +4,21 @@ import urllib.parse
 from channels.db import database_sync_to_async
 from channels.layers import get_channel_layer
 from channels.consumer import AsyncConsumer
-from channels.routing import URLRouter
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.db import transaction
 from channels.testing import WebsocketCommunicator
-from django.urls import path
 
-from E.auth import JWTAuthMiddleware
 from E.routing import application
-from base.consumers import GameConsumer
-from base.game_logic import Event
-from base.helpers import get_tokens_for_user
-from base.models import GameSession, Player
-
+from base.websocket.consumers import GameConsumer
+from base.websocket.game_logic.events import Event
+from base.websocket.game_logic.helpers import get_tokens_for_user
+from base.models import GameSession
 
 User = get_user_model()
 
 
-# FIXME: hehe another dirty hack for lack of a better idea for now
+# FIXME: hehe another dirty hack for lack of a better solution in community
 AsyncConsumer.channel_layer_alias = settings.TEST_LAYER_NAME
 
 

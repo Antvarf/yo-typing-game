@@ -6,15 +6,17 @@ from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
+BASE_DIR = os.path.join(os.path.dirname(__file__), 'wordlists')
+
+
 def get_regular_words():
-    with open(os.path.join(settings.BASE_DIR, "ozhegow_regular_words.json"), "r") as e:
+    with open(os.path.join(BASE_DIR, "ozhegow_regular_words.json"), "r") as e:
         words = json.loads(e.read())
     return words
 
 
 def get_yo_words():
-    # TODO: move words to the app folder and take them from there
-    with open(os.path.join(settings.BASE_DIR, "yo_words.json"), "r") as e:
+    with open(os.path.join(BASE_DIR, "yo_words.json"), "r") as e:
         words = json.loads(e.read())
     return words
 

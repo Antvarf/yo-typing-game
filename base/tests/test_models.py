@@ -10,7 +10,8 @@ from django.contrib.auth import get_user_model
 from base.models import (
     Player,
     GameSession,
-    GameModes, SessionPlayerResult,
+    GameModes,
+    SessionPlayerResult,
 )
 
 

@@ -8,21 +8,13 @@ from django.contrib.auth.models import AnonymousUser
 from channels.consumer import SyncConsumer
 from channels.generic.websocket import JsonWebsocketConsumer
 
-from .game_logic import Event, PlayerMessage, GameController, ControllerStorage, \
-    PlayerJoinRefusedError, ControllerError
-from .models import (
+from .game_logic.controllers import GameController, ControllerStorage
+from .game_logic.events import Event, PlayerMessage
+from .game_logic.exceptions import ControllerError, PlayerJoinRefusedError
+from base.models import (
     Player,
     GameSession,
     )
-from .helpers import (
-    get_regular_words,
-    get_yo_words,
-    )
-
-
-SESSIONS = dict()
-WORDS = get_regular_words()
-YO_WORDS = get_yo_words()
 
 
 class PlayerInputError(Exception):

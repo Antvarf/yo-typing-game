@@ -7,7 +7,7 @@ from channels.routing import (
     )
 from .auth import JWTAuthMiddleware
 
-from base import consumers
+from base.websocket import consumers
 
 
 application = ProtocolTypeRouter({

@@ -1,4 +1,4 @@
-# Yo-typing (version 2.1.3) <img src="favicon.png" height="25px">
+# Yo-typing (version 2.1.4) <img src="favicon.png" height="25px">
 Для версии страницы на русском [нажмите тут](docs/README_ru.md)
 
 ## Table of Contents

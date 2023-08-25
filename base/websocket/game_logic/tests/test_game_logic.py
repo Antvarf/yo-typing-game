@@ -1137,6 +1137,85 @@ class BaseTests:
 
             self.controller.player_event(join_event)
 
+        def test_handle_player_leave_from_absent_player_yields_nothing(self):
+            p1_join_event = Event(
+                type=Event.PLAYER_JOINED,
+                data=PlayerMessage(player=self.player_record),
+            )
+            p2_leave_event = Event(
+                type=Event.PLAYER_LEFT,
+                data=PlayerMessage(player=self.other_player_record),
+            )
+
+            self.controller.player_event(p1_join_event)
+            events = self.controller.player_event(p2_leave_event)
+
+            self.assertEqual(len(events), 0)
+
+        def test_handle_player_ready_from_absent_player_yields_nothing(self):
+            p1_join_event = Event(
+                type=Event.PLAYER_JOINED,
+                data=PlayerMessage(player=self.player_record),
+            )
+            p2_ready_event = Event(
+                type=Event.PLAYER_LEFT,
+                data=PlayerMessage(player=self.other_player_record,
+                                   payload=True),
+            )
+
+            self.controller.player_event(p1_join_event)
+
+            ready_count_before = self.controller._player_controller.ready_count
+            events = self.controller.player_event(p2_ready_event)
+            ready_count_after = self.controller._player_controller.ready_count
+
+            self.assertEqual(len(events), 0)
+            self.assertEqual(ready_count_before, ready_count_after)
+
+        def test_word_from_absent_player_yields_nothing(self):
+            p1_join_event = Event(
+                type=Event.PLAYER_JOINED,
+                data=PlayerMessage(player=self.player_record),
+            )
+            p2_word_event = Event(
+                type=Event.PLAYER_WORD,
+                data=PlayerMessage(player=self.other_player_record,
+                                   payload='test_word_1'),
+            )
+
+            self.controller.player_event(p1_join_event)
+            p1_local = self.controller._get_player(self.player_record)
+            self.controller._start_game()
+
+            score_before = p1_local.score
+            events = self.controller.player_event(p2_word_event)
+            score_after = p1_local.score
+
+            self.assertEqual(len(events), 0)
+            self.assertEqual(score_before, score_after)
+
+        def test_vote_from_absent_player_yields_nothing(self):
+            p1_join_event = Event(
+                type=Event.PLAYER_JOINED,
+                data=PlayerMessage(player=self.player_record),
+            )
+            p2_vote_event = Event(
+                type=Event.PLAYER_MODE_VOTE,
+                data=PlayerMessage(player=self.other_player_record,
+                                   payload='test_word_1'),
+            )
+
+            self.controller.player_event(p1_join_event)
+            self.controller._start_game()
+            self.controller._game_over()
+
+            count_before = self.controller._player_controller.voted_count
+            events = self.controller.player_event(p2_vote_event)
+            count_after = self.controller._player_controller.voted_count
+
+            self.assertEqual(len(events), 0)
+            self.assertEqual(count_before, count_after)
+
 
 class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
     game_mode = GameModes.SINGLE

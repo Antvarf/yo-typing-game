@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import random
 import secrets
 from collections import Counter
@@ -305,6 +306,17 @@ class PlayerController:
         player.displayed_name = player.old_displayed_name
 
 
+def requires_player(method):
+    @functools.wraps(method)
+    def wrapper(self, player: Player, *args, **kwargs):
+        if not isinstance(player, Player):
+            raise TypeError('player should be of type `Player`')
+        if not self._player_exists(player):
+            return list()
+        return method(self, player, *args, **kwargs)
+    return wrapper
+
+
 class GameController:
     STATE_PREPARING = 'preparing'
     STATE_PLAYING = 'playing'
@@ -365,9 +377,6 @@ class GameController:
             Event.PLAYER_MODE_VOTE: self._handle_player_vote,
             Event.PLAYER_SWITCH_TEAM: self._handle_switch_team,
         }
-        if hasattr(self, 'get_extending_event_handlers'):
-            extensions = self.get_extending_event_handlers()
-            event_handlers.update(extensions)  # Allow event handler override
         return event_handlers
 
     def _get_event_handler(self, event: str):
@@ -390,37 +399,36 @@ class GameController:
             return events
         raise PlayerJoinRefusedError
 
+    @requires_player
     def _handle_player_leave(self, player: Player) -> list[Event]:
         """Event handler for player leaving the session"""
         events = []
-        if self._player_exists(player):
-            self._remove_player(player)
-            if self._is_host(player):
-                events.append(self._set_new_host())
-            events.append(self._get_players_update_event())
-            if self._can_start():
-                game_begins_event = self._get_game_begins_event()
-                events.append(game_begins_event)
-                if self._options.start_delay <= 0:
-                    start_game_event = self._start_game()
-                    events.append(start_game_event)
-                else:
-                    self._stage_start_game(self._options.start_delay)
-            if not self._player_count and self._state is self.STATE_PLAYING:
-                events.append(self._game_over())
-            if self._state is self.STATE_VOTING and self._player_count:
-                events.append(self._get_votes_update_event())
-            if self._is_voting_finished():
-                events.append(self._create_new_game())
+        self._remove_player(player)
+        if self._is_host(player):
+            events.append(self._set_new_host())
+        events.append(self._get_players_update_event())
+        if self._can_start():
+            game_begins_event = self._get_game_begins_event()
+            events.append(game_begins_event)
+            if self._options.start_delay <= 0:
+                start_game_event = self._start_game()
+                events.append(start_game_event)
+            else:
+                self._stage_start_game(self._options.start_delay)
+        if not self._player_count and self._state is self.STATE_PLAYING:
+            events.append(self._game_over())
+        if self._state is self.STATE_VOTING and self._player_count:
+            events.append(self._get_votes_update_event())
+        if self._is_voting_finished():
+            events.append(self._create_new_game())
         return events
 
+    @requires_player
     def _handle_player_ready(self,
                              player: Player,
                              payload: bool,
                              ) -> list[Event]:
         events = []
-        if not self._player_exists(player):
-            return []
         if self._state is self.STATE_PREPARING:
             self._set_ready_state(player, payload)
             events.append(self._get_players_update_event())
@@ -434,6 +442,7 @@ class GameController:
                     self._stage_start_game(self._options.start_delay)
         return events
 
+    @requires_player
     def _handle_word(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is self.STATE_PLAYING:
@@ -504,6 +513,7 @@ class GameController:
             pass
         return events
 
+    @requires_player
     def _handle_player_vote(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is self.STATE_VOTING:
@@ -517,6 +527,7 @@ class GameController:
                 events.append(self._create_new_game())
         return events
 
+    @requires_player
     def _handle_switch_team(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is not self.STATE_PREPARING:

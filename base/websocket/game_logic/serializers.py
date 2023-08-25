@@ -93,7 +93,7 @@ class LocalTeam:
 
     @is_out.setter
     def is_out(self, value: bool):
-        if type(value) is not bool:
+        if not isinstance(value, bool):
             raise TypeError('`is_out` is expected to be boolean')
         for p in self.players:
             p.is_out = value
@@ -105,7 +105,7 @@ class LocalTeam:
 
     @is_winner.setter
     def is_winner(self, value: bool):
-        if type(value) is not bool:
+        if not isinstance(value, bool):
             raise TypeError('`is_winner` is expected to be boolean')
         for p in self.players:
             p.is_winner = value

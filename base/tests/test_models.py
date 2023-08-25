@@ -90,10 +90,10 @@ class GameSessionTestCase(TestCase):
             * can have duplicate rows
             * can't be longer than 50 characters
         """
-        empty_name_session = GameSession.objects.create(
+        GameSession.objects.create(
             mode=self.game_session.mode,
         )
-        duplicate_name_session = GameSession.objects.create(
+        GameSession.objects.create(
             name=self.game_session.name,
             mode=self.game_session.mode,
         )
@@ -366,7 +366,7 @@ class GameSessionSaveResultsTestCase(TestCase):
         results_qs = self.finished_game_session.results.all()
 
         for r in self.results:
-            result_obj = results_qs.get(**r)
+            results_qs.get(**r)
 
     def test_missing_parameters(self):
         required_params = ('score', 'speed', 'mistake_ratio',
@@ -638,13 +638,13 @@ class PlayerTestCase(TestCase):
             self.assertEqual(player.displayed_name, user.username)
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                user_duplicate = Player.objects.create(
+                Player.objects.create(
                     displayed_name="A",
                     user=self.users[0],
                 )
 
-        anon_player1 = Player.objects.create(displayed_name="C")
-        anon_player2 = Player.objects.create(displayed_name="D")
+        Player.objects.create(displayed_name="C")
+        Player.objects.create(displayed_name="D")
 
     def test_displayed_name(self):
         """Test that for displayed_name field:
@@ -653,7 +653,7 @@ class PlayerTestCase(TestCase):
             * Duplicates are allowed
         """
         p1 = Player.objects.create(displayed_name="A")
-        p1_duplicate = Player.objects.create(displayed_name=p1.displayed_name)
+        Player.objects.create(displayed_name=p1.displayed_name)
         p2 = Player.objects.create(displayed_name="A"*50)
         with self.assertRaises(ValidationError):
             p1.displayed_name = ""
@@ -782,13 +782,13 @@ class PlayerStatsTestCase(TestCase):
         mode = '`'
         error_message = f'`{mode}` is not a defined gamemode'
         with self.assertRaisesMessage(ValueError, error_message):
-            stats_qs = Player.objects.with_stats(mode=mode)
+            Player.objects.with_stats(mode=mode)
 
     def test_multiple_players(self):
         """Test that .with_stats() works on a queryset of players"""
         players = Player.objects.all().with_stats()
         for p in players:
-            results_qs = SessionPlayerResult.objects.filter(player=self.player)
+            SessionPlayerResult.objects.filter(player=self.player)
             self.assertTrue(self.stats_match_results)
 
     def test_empty_players(self):

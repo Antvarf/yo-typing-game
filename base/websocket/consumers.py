@@ -112,7 +112,7 @@ class GameConsumer(JsonWebsocketConsumer):
         self.notify(events)
 
     def _perform_input_checks(self, content):
-        if type(content) is not dict:
+        if not isinstance(content, dict):
             raise PlayerInputError('invalid message received')
 
         msg_type = content.get('type', None)

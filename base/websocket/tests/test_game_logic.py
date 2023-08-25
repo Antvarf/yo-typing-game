@@ -5,11 +5,20 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from base.websocket.game_logic.controllers import WordListProvider, PlayerController, GameOptions, GameController, \
-    ControllerStorage
+from base.websocket.game_logic.controllers import (
+    ControllerStorage,
+    WordListProvider,
+    PlayerController,
+    GameController,
+    GameOptions,
+)
 from base.websocket.game_logic.events import PlayerMessage, Event
-from base.websocket.game_logic.exceptions import PlayerJoinRefusedError, InvalidOperationError, GameOverError, \
-    InvalidModeChoiceError
+from base.websocket.game_logic.exceptions import (
+    PlayerJoinRefusedError,
+    InvalidOperationError,
+    InvalidModeChoiceError,
+    GameOverError,
+)
 from base.websocket.game_logic.serializers import LocalPlayer
 from base.models import (
     GameSession,
@@ -129,7 +138,7 @@ class BaseTests:
             )
             self.assertIs(type(initial_state_event.data['words']), list)
             self.assertTrue(all(
-                type(w) == str
+                isinstance(w, str)
                 for w in initial_state_event.data['words']
             ))
             # TODO: add check that for two players words are the same
@@ -287,7 +296,6 @@ class BaseTests:
 
             self.assertEqual(players_update_event.target, Event.TARGET_ALL)
             self.assertEqual(players_update_event.type, Event.SERVER_PLAYERS_UPDATE)
-            # self.assertIn('players', players_update_event.data) # TODO: check schema in gamemodes
 
             self.assertEqual(game_begins_event.target, Event.TARGET_ALL)
             self.assertEqual(game_begins_event.type, Event.SERVER_GAME_BEGINS)
@@ -517,7 +525,7 @@ class BaseTests:
             self.assertEqual(server_events[0].target, Event.TARGET_PLAYER)
             self.assertIs(type(server_events[0].data), list)
             self.assertTrue(all(
-                type(w) == str
+                isinstance(w, str)
                 for w in server_events[0].data
             ))
 
@@ -708,12 +716,12 @@ class BaseTests:
 
             self.controller.set_host(self.player_record)
             players_update_event_1, = self.controller.player_event(tick_event)
-            players_data_1 = copy.deepcopy(players_update_event_1.data)
+            copy.deepcopy(players_update_event_1.data)
 
             time.sleep(0.5)
 
             players_update_event_2, = self.controller.player_event(tick_event)
-            players_data_2 = copy.deepcopy(players_update_event_2.data)
+            copy.deepcopy(players_update_event_2.data)
 
             self.assertEqual(players_update_event_1.type,
                              Event.SERVER_PLAYERS_UPDATE)
@@ -1773,7 +1781,7 @@ class ControllerStorageTestCase(TestCase):
     def test_keep_controller_for_other_users_after_removing(self):
         """If user counter is > 1 on remove, keep the controller instance"""
         storage_instance = self.storage_class()
-        controller1 = storage_instance.get_game_controller(
+        storage_instance.get_game_controller(
             controller_cls=self.controller_class,
             session_id=self.session_record.session_id,
         )

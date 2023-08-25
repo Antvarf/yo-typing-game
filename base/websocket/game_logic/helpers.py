@@ -2,7 +2,6 @@ import os
 import json
 import random
 
-from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 

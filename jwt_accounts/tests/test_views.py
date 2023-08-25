@@ -3,7 +3,6 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from base.models import Player
 
 
 User = get_user_model()
@@ -52,7 +51,7 @@ class AuthAPITestCase(APITestCase):
         """
         self.credentials['username'] = 'test_user_2'
         with self.assertRaises(User.DoesNotExist):
-            user_before_create = User.objects.get(
+            User.objects.get(
                 username=self.credentials['username']
             )
         response = self.client.post(
@@ -113,6 +112,8 @@ class AuthAPITestCase(APITestCase):
         # # Access tokens aren't invalidated by the blacklist part of simplejwt
         # # library, so for some time this code will just be there, waiting to
         # # be uncommented...
-        # self.client.credentials(HTTP_AUTHORIZATION='JWT {}'.format(old_tokens['access']))
+        # self.client.credentials(
+        #     HTTP_AUTHORIZATION='JWT {}'.format(old_tokens['access']),
+        # )
         # response = self.client.post(self.auth_check_url)
         # self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

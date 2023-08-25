@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 import secrets
 from collections import Counter
@@ -446,7 +448,9 @@ class GameController:
                 if self._options.time_per_word:
                     bonus_time = self._options.time_per_word * word_length
                     if self._options.team_mode:
-                        competitor = self._player_controller.teams[local_player.team_name]
+                        competitor = self._player_controller.teams[
+                            local_player.team_name
+                        ]
                     else:
                         competitor = local_player
                     competitor.time_left = min(
@@ -773,7 +777,8 @@ class GameController:
 
     def _is_game_over(self) -> bool:
         if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
-            out_count = [c.is_out for c in self._competitors].count(True) # TODO: move count to player controller
+            # TODO: move count to player controller
+            out_count = [c.is_out for c in self._competitors].count(True)
             return out_count and out_count >= len(self._competitors) - 1
 
         if self._options.game_duration:

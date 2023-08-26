@@ -2,6 +2,10 @@ class ControllerError(Exception):
     pass
 
 
+class DiscardedEvent(ControllerError):
+    pass
+
+
 class PlayerJoinRefusedError(ControllerError):
     pass
 

@@ -343,13 +343,20 @@ class BaseTests:
             )
             self.controller.player_event(join_event)
             self.controller._start_game()
-            server_events = self.controller.player_event(ready_event)
-            self.assertEqual(len(server_events), 0)
+            ready_before = self.controller._player_controller.ready_count
+            with self.assertRaises(InvalidOperationError):
+                self.controller.player_event(ready_event)
+            ready_after = self.controller._player_controller.ready_count
+            self.assertEqual(ready_before, ready_after)
 
             self.controller._game_over()
-            server_events = self.controller.player_event(ready_event)
+            ready_before = self.controller._player_controller.ready_count
+            with self.assertRaises(InvalidOperationError):
+                self.controller.player_event(ready_event)
+            ready_after = self.controller._player_controller.ready_count
+            self.assertEqual(ready_before, ready_after)
+
             self.session_record.refresh_from_db()
-            self.assertEqual(len(server_events), 0)
             self.assertIsNotNone(self.session_record.started_at)
             self.assertIsNotNone(self.session_record.finished_at)
             self.assertTrue(self.session_record.is_finished)
@@ -417,9 +424,9 @@ class BaseTests:
                 data=PlayerMessage(player=self.player_record, payload='test_word')
             )
             self.controller.player_event(join_event)
-            server_events = self.controller.player_event(word_event)
 
-            self.assertEqual(len(server_events), 0)
+            with self.assertRaises(InvalidOperationError):
+                self.controller.player_event(word_event)
 
         def test_player_cannot_submit_words_while_voting(self):
             """Any word event during VOTING stage is discarded"""
@@ -434,10 +441,9 @@ class BaseTests:
             self.controller.player_event(join_event)
             self.controller._start_game()
             self.controller._game_over()
-            server_events = self.controller.player_event(word_event)
-            # i don't believe that anybody feels the way i do about you now
 
-            self.assertEqual(len(server_events), 0)
+            with self.assertRaises(InvalidOperationError):
+                self.controller.player_event(word_event)
 
         def test_player_vote_event(self):
             """
@@ -816,9 +822,9 @@ class BaseTests:
             self.session_record.refresh_from_db()
 
             self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-            self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+            self.assertEqual(server_events[0].type, Event.SERVER_VOTES_UPDATE)
             self.assertEqual(server_events[1].target, Event.TARGET_ALL)
-            self.assertEqual(server_events[1].type, Event.SERVER_VOTES_UPDATE)
+            self.assertEqual(server_events[1].type, Event.SERVER_PLAYERS_UPDATE)
             self.assertEqual(server_events[2].target, Event.TARGET_ALL)
             self.assertEqual(server_events[2].type, Event.SERVER_NEW_GAME)
             self.assertEqual(self.session_record.players_now, players_before + 1)
@@ -889,9 +895,9 @@ class BaseTests:
 
             self.assertEqual(len(server_events), 2)
             self.assertEqual(server_events[0].target, Event.TARGET_ALL)
-            self.assertEqual(server_events[0].type, Event.SERVER_PLAYERS_UPDATE)
+            self.assertEqual(server_events[0].type, Event.SERVER_VOTES_UPDATE)
             self.assertEqual(server_events[1].target, Event.TARGET_ALL)
-            self.assertEqual(server_events[1].type, Event.SERVER_VOTES_UPDATE)
+            self.assertEqual(server_events[1].type, Event.SERVER_PLAYERS_UPDATE)
             self.assertEqual(self.session_record.players_now, players_before + 1)
 
         def test_new_game_is_not_fired_while_prep(self):
@@ -997,14 +1003,9 @@ class BaseTests:
             )
             self.controller.player_event(join_event)
             self.controller._start_game()
-            events = self.controller.player_event(leave_event)
+            self.controller.player_event(leave_event)
             self.session_record.refresh_from_db()
 
-            self.assertEqual(len(events), 2)
-            self.assertEqual(events[0].type, Event.SERVER_PLAYERS_UPDATE)
-            self.assertEqual(events[0].target, Event.TARGET_ALL)
-            self.assertEqual(events[1].type, Event.SERVER_GAME_OVER)
-            self.assertEqual(events[1].target, Event.TARGET_ALL)
             self.assertEqual(self.session_record.players_now, 0)
             self.assertEqual(self.session_record.is_finished, True)
             self.assertIsNotNone(self.session_record.started_at)
@@ -1266,9 +1267,9 @@ class SingleGameControllerTestCase(BaseTests.GameControllerTestCase):
         local_player = self.controller._get_player(self.player_record)
 
         self.controller._start_game()
-        self.assertFalse(self.controller._is_game_over())
+        self.assertFalse(self.controller._can_begin_voting())
         time.sleep(self.controller._options.game_duration)
-        self.assertTrue(self.controller._is_game_over())
+        self.assertTrue(self.controller._can_begin_voting())
         self.controller._game_over()
         self.assertTrue(local_player.is_winner)
 
@@ -1471,6 +1472,7 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
         self.assertTrue(players_update_event_1.data['players'][0]['isOut'])
 
     def test_cannot_submit_words_when_out(self):
+        player3 = Player.objects.create(displayed_name='test_player_3')
         self.controller._options.game_duration = 0.5
         p1_joined_event = Event(
             type=Event.PLAYER_JOINED,
@@ -1480,11 +1482,18 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
             type=Event.PLAYER_JOINED,
             data=PlayerMessage(player=self.other_player_record),
         )
+        p3_joined_event = Event(
+            type=Event.PLAYER_JOINED,
+            data=PlayerMessage(player=player3),
+        )
         p1_initial_state_event, _ = self.controller.player_event(
             p1_joined_event,
         )
         p2_initial_state_event, _ = self.controller.player_event(
             p2_joined_event,
+        )
+        p3_initial_state_event, _ = self.controller.player_event(
+            p3_joined_event,
         )
         p2_word_event = Event(
             type=Event.PLAYER_WORD,
@@ -1502,9 +1511,10 @@ class EndlessGameControllerTestCase(BaseTests.GameControllerTestCase):
 
         local_p1 = self.controller._get_player(self.player_record)
         local_p2 = self.controller._get_player(self.other_player_record)
+        local_p3 = self.controller._get_player(player3)
 
         self.controller._start_game()
-        local_p1.time_left = 9000
+        local_p1.time_left = local_p3.time_left = 9000
         time.sleep(max(self.controller._options.game_duration, 1))
 
         self.controller.set_host(self.player_record)
@@ -1744,13 +1754,13 @@ class TugOfWarGameControllerTestCase(SingleGameControllerTestCase):
         self.controller.player_event(p1_joined_event)
         self.controller.player_event(p2_joined_event)
         self.controller._start_game()
-        self.assertFalse(self.controller._is_game_over())
+        self.assertFalse(self.controller._can_begin_voting())
 
         team_1, team_2 = self.controller._competitors
         team_1.players[0].score = self.controller._options.points_difference
 
         self.assertGreater(team_1.score, 0)
-        self.assertTrue(self.controller._is_game_over())
+        self.assertTrue(self.controller._can_begin_voting())
 
         self.controller._game_over()
         self.assertTrue(team_1.is_winner)

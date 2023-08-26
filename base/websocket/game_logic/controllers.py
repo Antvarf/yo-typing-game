@@ -15,7 +15,7 @@ from . import helpers
 from .events import Event
 from .exceptions import (
     InvalidOperationError, PlayerJoinRefusedError, EventTypeNotDefinedError,
-    InvalidMessageError, GameOverError, InvalidModeChoiceError,
+    InvalidMessageError, GameOverError, InvalidModeChoiceError, DiscardedEvent,
 )
 from .serializers import LocalPlayer, NAME_STYLE, LocalTeam
 
@@ -306,15 +306,30 @@ class PlayerController:
         player.displayed_name = player.old_displayed_name
 
 
-def requires_player(method):
-    @functools.wraps(method)
-    def wrapper(self, player: Player, *args, **kwargs):
-        if not isinstance(player, Player):
-            raise TypeError('player should be of type `Player`')
-        if not self._player_exists(player):
-            return list()
-        return method(self, player, *args, **kwargs)
-    return wrapper
+def game_event_handler(
+    requires_player: bool = False,
+    updates_players: bool = False,
+    updates_stage: bool = False,
+):
+    """
+    Decorator to mark and configure game event handlers
+    """
+    def decorator(method):
+        @functools.wraps(method)
+        def wrapper(self, player, *args, **kwargs) -> list[Event]:
+            if requires_player and not self._player_exists(player):
+                return list()
+            try:
+                events = method(self, player, *args, **kwargs)
+            except DiscardedEvent:
+                return list()
+            if updates_players:
+                events.append(self._get_players_update_event())
+            if updates_stage:
+                events.extend(self._update_game_stage())
+            return events
+        return wrapper
+    return decorator
 
 
 class GameController:
@@ -387,6 +402,7 @@ class GameController:
 
     ### Event handlers start here ###
 
+    @game_event_handler(updates_players=True)
     def _handle_player_join(self, player: Player, payload={}) -> list[Event]:
         """
         Event handler for player joining the session.
@@ -395,94 +411,92 @@ class GameController:
         if self._can_player_join(player, **payload):
             player_obj = self._add_player(player)
             events.append(self._get_initial_state_event(player_obj))
-            events.append(self._get_players_update_event())
             return events
         raise PlayerJoinRefusedError
 
-    @requires_player
+    @game_event_handler(
+        requires_player=True,
+        updates_players=True,
+        updates_stage=True,
+    )
     def _handle_player_leave(self, player: Player) -> list[Event]:
         """Event handler for player leaving the session"""
         events = []
         self._remove_player(player)
         if self._is_host(player):
             events.append(self._set_new_host())
-        events.append(self._get_players_update_event())
-        if self._can_start():
-            game_begins_event = self._get_game_begins_event()
-            events.append(game_begins_event)
-            if self._options.start_delay <= 0:
-                start_game_event = self._start_game()
-                events.append(start_game_event)
-            else:
-                self._stage_start_game(self._options.start_delay)
-        if not self._player_count and self._state is self.STATE_PLAYING:
-            events.append(self._game_over())
         if self._state is self.STATE_VOTING and self._player_count:
             events.append(self._get_votes_update_event())
-        if self._is_voting_finished():
-            events.append(self._create_new_game())
         return events
 
-    @requires_player
+    @game_event_handler(
+        requires_player=True,
+        updates_players=True,
+        updates_stage=True,
+    )
     def _handle_player_ready(self,
-                             player: Player,
-                             payload: bool,
-                             ) -> list[Event]:
+                             player: Player, payload: bool) -> list[Event]:
         events = []
-        if self._state is self.STATE_PREPARING:
-            self._set_ready_state(player, payload)
-            events.append(self._get_players_update_event())
-            if self._can_start():
-                game_begins_event = self._get_game_begins_event()
-                events.append(game_begins_event)
-                if self._options.start_delay <= 0:
-                    start_game_event = self._start_game()
-                    events.append(start_game_event)
-                else:
-                    self._stage_start_game(self._options.start_delay)
+        if self._state is not self.STATE_PREPARING:
+            raise InvalidOperationError(
+                f'Cannot change ready state during {self._state} stage'
+            )
+        self._set_ready_state(player, payload)
         return events
 
-    @requires_player
+    @game_event_handler(
+        requires_player=True,
+        updates_players=True,
+    )
     def _handle_word(self, player: Player, payload: str) -> list[Event]:
         events = []
-        if self._state is self.STATE_PLAYING:
-            local_player = self._player_controller.get_player(player)
-            if payload == local_player.get_next_word():
-                word_length = len(payload)
-                local_player.score += word_length
-                local_player.total_word_length += word_length
-                eta = (timezone.now() - self._session.started_at).total_seconds()
-                local_player.speed = local_player.total_word_length / eta
-                local_player.correct_words += 1
-                if self._options.time_per_word:
-                    bonus_time = self._options.time_per_word * word_length
-                    if self._options.team_mode:
-                        competitor = self._player_controller.teams[
-                            local_player.team_name
-                        ]
-                    else:
-                        competitor = local_player
-                    competitor.time_left = min(
-                        float(self._options.game_duration),
-                        competitor.time_left + bonus_time,
-                    )
-            else:
-                # TODO: cover with tests
-                local_player.incorrect_words += 1
-            # TODO: check for game_over condition
-            events.append(self._get_new_word_event())
-            events.append(self._get_players_update_event())
+        if self._state is not self.STATE_PLAYING:
+            raise InvalidOperationError(
+                f'Cannot submit words during {self._state} stage'
+            )
+        local_player = self._player_controller.get_player(player)
+        if local_player.is_out:
+            raise InvalidOperationError('Cannot submit words when out')
+        if payload == local_player.get_next_word():
+            word_length = len(payload)
+            local_player.score += word_length
+            local_player.total_word_length += word_length
+            eta = (timezone.now() - self._session.started_at).total_seconds()
+            local_player.speed = local_player.total_word_length / eta
+            local_player.correct_words += 1
+            if self._options.time_per_word:
+                bonus_time = self._options.time_per_word * word_length
+                if self._options.team_mode:
+                    competitor = self._player_controller.teams[
+                        local_player.team_name
+                    ]
+                else:
+                    competitor = local_player
+                competitor.time_left = min(
+                    float(self._options.game_duration),
+                    competitor.time_left + bonus_time,
+                )
+        else:
+            # TODO: cover with tests
+            local_player.incorrect_words += 1
+        # TODO: check for game_over condition
+        events.append(self._get_new_word_event())
         return events
 
+    @game_event_handler(
+        updates_players=True,
+        updates_stage=True,
+    )
     def _handle_tick(self, player, **kwargs) -> list[Event]:
         events = []
         if not self._is_host(player):
-            pass
+            raise DiscardedEvent
 
         elif self._state is self.STATE_PREPARING:
-            if self._game_begins_at is not None:
-                if timezone.now() >= self._game_begins_at:
-                    events.append(self._start_game())
+            if self._game_begins_at is None \
+                    or timezone.now() < self._game_begins_at:
+                raise DiscardedEvent
+            events.append(self._start_game())
 
         elif self._state is self.STATE_PLAYING:
             if self._options.game_duration:
@@ -504,16 +518,14 @@ class GameController:
                         c.time_left = 0
                         c.is_out = True
 
-            events.append(self._get_players_update_event())
-
-            if self._is_game_over():
-                events.append(self._game_over())
-
         elif self._state is self.STATE_VOTING:
-            pass
+            raise DiscardedEvent
         return events
 
-    @requires_player
+    @game_event_handler(
+        requires_player=True,
+        updates_stage=True,
+    )
     def _handle_player_vote(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is self.STATE_VOTING:
@@ -522,18 +534,17 @@ class GameController:
                 events.append(self._get_votes_update_event())
             else:
                 events.append(self._get_modes_available_event())
-
-            if self._is_voting_finished():
-                events.append(self._create_new_game())
         return events
 
-    @requires_player
+    @game_event_handler(
+        requires_player=True,
+        updates_players=True,
+    )
     def _handle_switch_team(self, player: Player, payload: str) -> list[Event]:
         events = []
         if self._state is not self.STATE_PREPARING:
             raise InvalidOperationError
         self._player_controller.set_player_team(player, payload)
-        events.append(self._get_players_update_event())
         return events
 
     def _get_initial_state_event(self, player: LocalPlayer) -> Event:
@@ -644,14 +655,14 @@ class GameController:
             competitors = self._player_controller.players
         return competitors
 
-    def _can_start(self) -> bool:
+    def _can_begin_playing(self) -> bool:
         if self._state is not self.STATE_PREPARING:
             return False
         players_ready = self._player_controller.ready_count
         players_count = self._player_controller.player_count
         return players_count and players_ready >= players_count
 
-    def _is_voting_finished(self) -> bool:
+    def _can_enter_next_game(self) -> bool:
         if self._state is not self.STATE_VOTING:
             return False
         players_voted = self._player_controller.voted_count
@@ -669,6 +680,27 @@ class GameController:
                 and not self._session.check_password(password):
             return False
         return True
+
+    def _enter_playing_stage(self) -> list[Event]:
+        events = []
+        game_begins_event = self._get_game_begins_event()
+        events.append(game_begins_event)
+        if self._options.start_delay <= 0:
+            start_game_event = self._start_game()
+            events.append(start_game_event)
+        else:
+            self._stage_start_game(self._options.start_delay)
+        return events
+
+    def _update_game_stage(self) -> list[Event]:
+        events = []
+        if self._can_begin_playing():
+            events.extend(self._enter_playing_stage())
+        elif self._can_begin_voting():
+            events.append(self._game_over())
+        elif self._can_enter_next_game():
+            events.append(self._create_new_game())
+        return events
 
     def _player_exists(self, player: Player) -> bool:
         """
@@ -786,7 +818,13 @@ class GameController:
     def results(self) -> list[dict]:
         return self._players_with_results
 
-    def _is_game_over(self) -> bool:
+    def _can_begin_voting(self) -> bool:
+        if self._state is not self.STATE_PLAYING:
+            return False
+
+        if self._player_count <= 0:
+            return True
+
         if self._options.win_condition == GameOptions.WIN_CONDITION_SURVIVED:
             # TODO: move count to player controller
             out_count = [c.is_out for c in self._competitors].count(True)

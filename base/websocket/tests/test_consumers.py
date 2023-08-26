@@ -202,10 +202,9 @@ class GameConsumerTestCase(TestCase):
 
         time.sleep(3)
 
-        for i in range(2):
-            await channel_layer.group_send(settings.HOSTS_GROUP_NAME, {
-                    'type': 'session.tick',
-                }, )
+        await channel_layer.group_send(settings.HOSTS_GROUP_NAME, {
+                'type': 'session.tick',
+            }, )
         await communicator1.receive_json_from()
         update_message = await communicator1.receive_json_from()
 

@@ -5,6 +5,7 @@ import random
 import secrets
 from collections import Counter
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import cached_property
 
 import dataclass_factory
@@ -508,20 +509,12 @@ class GameController:
 
         elif self._state is self.STATE_PLAYING:
             if self._options.game_duration:
-                prev_tick = self._last_tick or self._session.started_at
-                self._last_tick = timezone.now()
+                is_survival = self._options.win_condition\
+                              == GameOptions.WIN_CONDITION_SURVIVED
 
-                now_psec = (
-                    self._last_tick - self._session.started_at
-                ).total_seconds() ** (1 + self._options.speed_up_percent/100)
-                prev_tick_psec = (
-                    prev_tick - self._session.started_at
-                ).total_seconds() ** (1 + self._options.speed_up_percent/100)
-
+                delta = self._get_tick_timedelta()
                 for c in self._competitors:
-                    c.time_left -= now_psec - prev_tick_psec
-                    is_survival = self._options.win_condition \
-                        == GameOptions.WIN_CONDITION_SURVIVED
+                    c.time_left -= delta
                     if is_survival and c.time_left <= 0:
                         c.time_left = 0
                         c.is_out = True
@@ -780,6 +773,24 @@ class GameController:
         if self._options.points_difference:
             # TODO: can't start with less than two competitors
             pass
+
+    def _get_tick_timedelta(self) -> float:
+        """Returns a time between now and previous tick in pseudoseconds"""
+        def timedelta_to_psec(delta: timedelta) -> float:
+            delta_sec = delta.total_seconds()
+            return delta_sec ** (1 + self._options.speed_up_percent / 100)
+
+        prev_tick = self._last_tick or self._session.started_at
+        self._last_tick = timezone.now()
+
+        now_psec = timedelta_to_psec(
+           self._last_tick - self._session.started_at
+        )
+        prev_tick_psec = timedelta_to_psec(
+             prev_tick - self._session.started_at
+        )
+
+        return now_psec - prev_tick_psec
 
     def _game_over(self) -> Event:
         """

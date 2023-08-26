@@ -2380,3 +2380,74 @@ class PlayerControllerTestCase(TestCase):
         result = self.session.results.get()
 
         self.assertEqual(result.team_name, local_player.team_name)
+
+    def test_submit_good_player_word(self):
+        """
+        This method:
+            + requires player to be present
+            + updates some stats (good for good word, bad for bad)
+        """
+        self.controller.add_player(self.player)
+        self.session.start_game()
+        correct_word = self.words[0]
+        word_length = len(correct_word)
+        local_player = self.controller.get_player(self.player)
+
+        player_before = copy.copy(local_player)
+        self.controller.submit_player_word(self.player, correct_word)
+        player_after = copy.copy(local_player)
+
+        self.assertGreater(player_after.speed, player_before.speed)
+
+        self.assertEqual(player_after.score,
+                         player_before.score + word_length)
+        self.assertEqual(player_after.correct_words,
+                         player_before.correct_words + 1)
+        self.assertEqual(player_after.incorrect_words,
+                         player_before.incorrect_words)
+
+    def test_submit_bad_player_word(self):
+        self.controller.add_player(self.player)
+        self.session.start_game()
+        incorrect_word = self.words[1]
+        local_player = self.controller.get_player(self.player)
+
+        player_before = copy.copy(local_player)
+        self.controller.submit_player_word(self.player, incorrect_word)
+        player_after = copy.copy(local_player)
+
+        self.assertEqual(player_after.speed, player_before.speed)
+        self.assertEqual(player_after.score, player_before.score)
+        self.assertEqual(player_after.correct_words,
+                         player_before.correct_words)
+        self.assertEqual(player_after.incorrect_words,
+                         player_before.incorrect_words + 1)
+
+    def test_submit_player_word_fails_if_player_absent(self):
+        self.session.start_game()
+        with self.assertRaises(KeyError):
+            correct_word = self.words[0]
+            self.controller.submit_player_word(self.player, correct_word)
+
+        with self.assertRaises(KeyError):
+            self.controller.get_player(self.player)
+
+    def test_submit_player_word_fails_if_player_is_out(self):
+        self.session.start_game()
+        local_player = self.controller.add_player(self.player)
+        local_player.is_out = True
+
+        with self.assertRaises(InvalidOperationError):
+            correct_word = self.words[0]
+            self.controller.submit_player_word(self.player, correct_word)
+
+    # def test_submit_player_word_fails_if_not_playing(self):
+    #     with self.assertRaises(InvalidOperationError):
+    #         correct_word = self.words[0]
+    #         self.controller.submit_player_word(self.player, correct_word)
+    #
+    #     self.session.start_game()
+    #     self.session.game_over()
+    #
+    #     with self.assertRaises(InvalidOperationError):
+    #         local_player = self.controller.get_player(self.player)

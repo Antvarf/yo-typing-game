@@ -249,6 +249,19 @@ class PlayerController:
             team_obj.add_player(local_player)
             local_player.team_name = team
 
+    def submit_player_word(self, player: Player, word: str) -> str:
+        local_player = self.get_player(player)
+        if local_player.is_out:
+            raise InvalidOperationError('Cannot submit words when out')
+
+        word_expected = local_player.get_next_word()
+        if word == word_expected:
+            local_player.correct_words += 1
+            self._update_stats_from_correct_word(local_player, word_expected)
+        else:
+            local_player.incorrect_words += 1
+        return word_expected
+
     def to_dict(self, include_results=False):
         # TODO: add tests for to_dict with results
         factory = self._results_factory if include_results else self._factory
@@ -261,10 +274,27 @@ class PlayerController:
         self.session.players_now = self.player_count
         self.session.save()
 
+    def _update_stats_from_correct_word(self,
+                                        local_player: LocalPlayer, word: str):
+        local_player.score += len(word)
+        local_player.total_word_length += len(word)
+        eta = (timezone.now() - self.session.started_at).total_seconds()
+        local_player.speed = local_player.total_word_length / eta
+
+        if self._options.time_per_word:
+            bonus_time = self._options.time_per_word * len(word)
+            if self._options.team_mode:
+                competitor = self.teams[local_player.team_name]
+            else:
+                competitor = local_player
+            competitor.time_left = min(
+                float(self._options.game_duration),
+                competitor.time_left + bonus_time,
+            )
+
     def save_results(self):
         # TODO: this will need a refactor
         #   1. Schema (and model) should account for other fields like is_out
-        #   2. My mom said it smells bad in my room, must be this code
         schema_fields = [
             'score', 'speed', 'is_winner',
             'correct_words', 'incorrect_words', 'mistake_ratio'
@@ -402,7 +432,9 @@ class GameController:
 
     ### Event handlers start here ###
 
-    @game_event_handler(updates_players=True)
+    @game_event_handler(
+        updates_players=True,
+    )
     def _handle_player_join(self, player: Player, payload={}) -> list[Event]:
         """
         Event handler for player joining the session.
@@ -454,31 +486,7 @@ class GameController:
             raise InvalidOperationError(
                 f'Cannot submit words during {self._state} stage'
             )
-        local_player = self._player_controller.get_player(player)
-        if local_player.is_out:
-            raise InvalidOperationError('Cannot submit words when out')
-        if payload == local_player.get_next_word():
-            word_length = len(payload)
-            local_player.score += word_length
-            local_player.total_word_length += word_length
-            eta = (timezone.now() - self._session.started_at).total_seconds()
-            local_player.speed = local_player.total_word_length / eta
-            local_player.correct_words += 1
-            if self._options.time_per_word:
-                bonus_time = self._options.time_per_word * word_length
-                if self._options.team_mode:
-                    competitor = self._player_controller.teams[
-                        local_player.team_name
-                    ]
-                else:
-                    competitor = local_player
-                competitor.time_left = min(
-                    float(self._options.game_duration),
-                    competitor.time_left + bonus_time,
-                )
-        else:
-            # TODO: cover with tests
-            local_player.incorrect_words += 1
+        self._player_controller.submit_player_word(player, payload)
         # TODO: check for game_over condition
         events.append(self._get_new_word_event())
         return events

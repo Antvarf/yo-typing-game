@@ -5,21 +5,24 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from base.websocket.game_logic.controllers import (
+from base.websocket.game.core.controllers import (
     ControllerStorage,
-    WordListProvider,
     PlayerController,
     GameController,
+)
+from base.websocket.game.core.providers import WordListProvider
+from base.websocket.game.core.types import (
+    PlayerMessage,
+    Event,
+    LocalPlayer,
     GameOptions,
 )
-from base.websocket.game_logic.events import PlayerMessage, Event
-from base.websocket.game_logic.exceptions import (
+from base.websocket.game.core.exceptions import (
     PlayerJoinRefusedError,
     InvalidOperationError,
     InvalidModeChoiceError,
     GameOverError,
 )
-from base.websocket.game_logic.serializers import LocalPlayer
 from base.models import (
     GameSession,
     Player,

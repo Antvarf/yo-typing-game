@@ -12,13 +12,16 @@ import dataclass_factory
 from django.utils import timezone
 
 from base.models import Player, GameModes, GameSession
-from . import helpers
-from .events import Event
-from .exceptions import (
+from base.websocket.game.core.providers import WordListProvider
+from base.websocket.game.core.types import Event, LocalPlayer, LocalTeam, GameOptions
+from base.websocket.game.core.exceptions import (
     InvalidOperationError, PlayerJoinRefusedError, EventTypeNotDefinedError,
     InvalidMessageError, GameOverError, InvalidModeChoiceError, DiscardedEvent,
 )
-from .serializers import LocalPlayer, NAME_STYLE, LocalTeam
+
+
+# naming style used on client for easy conversion
+NAME_STYLE = dataclass_factory.NameStyle.camel_lower
 
 
 class ControllerStorage:
@@ -41,59 +44,12 @@ class ControllerStorage:
                 self._sessions.pop(session_id)
 
 
-class WordListProvider:
-    def __init__(self):
-        self._words = []
-        self._new_word_iterator = iter([])
-        self._extend_word_list(init=True)
-
-    def _extend_word_list(self, init=False):
-        word_page = self._get_new_word_page()
-        self._words.extend(word_page)
-        if not init:
-            self._new_word_iterator = iter(word_page)
-
-    @staticmethod
-    def _get_new_word_page(n: int = 100) -> list[str]:
-        word_page = helpers.get_words(n)
-        return word_page
-
-    @property
-    def words(self) -> list[str]:
-        if not self._words:
-            self._extend_word_list()
-        return self._words
-
-    def get_new_word(self) -> str:
-        word = next(self._new_word_iterator, None)
-        if word is None:
-            self._extend_word_list()
-            word = next(self._new_word_iterator)
-        return word
-
-
 def updates_db(f):
     def wrapper(self, *args, **kwargs):
         result = f(self, *args, **kwargs)
         self._perform_database_update()
         return result
     return wrapper
-
-
-@dataclass
-class GameOptions:
-    WIN_CONDITION_BEST_SCORE = 'PointsCompetition'
-    WIN_CONDITION_BEST_TIME = 'Race'
-    WIN_CONDITION_SURVIVED = 'Survival'
-
-    game_duration: int = 60
-    win_condition: str = WIN_CONDITION_BEST_SCORE
-    team_mode: bool = False
-    speed_up_percent: float = 0.0
-    points_difference: int = 0
-    time_per_word: float = 0.0
-    strict_mode: bool = False
-    start_delay: float = 0.0
 
 
 @dataclass(init=False)
@@ -509,7 +465,7 @@ class GameController:
 
         elif self._state is self.STATE_PLAYING:
             if self._options.game_duration:
-                is_survival = self._options.win_condition\
+                is_survival = self._options.win_condition \
                               == GameOptions.WIN_CONDITION_SURVIVED
 
                 delta = self._get_tick_timedelta()

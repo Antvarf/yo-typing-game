@@ -1,12 +1,66 @@
-from dataclasses import dataclass, InitVar
+from __future__ import annotations
+
+import typing
+from dataclasses import dataclass, asdict, InitVar
 
 import dataclass_factory
 
 from base.models import Player
 
 
-# naming style used on client for easy converting
-NAME_STYLE = dataclass_factory.NameStyle.camel_lower
+@dataclass
+class PlayerMessage:
+    player: Player = None
+    payload: typing.Any = None
+
+    def to_dict(self):
+        data = asdict(self)
+        if self.payload is None:
+            data.pop('payload')
+        return data
+
+
+@dataclass
+class Event:
+    PLAYER_JOINED = 'player_joined'
+    PLAYER_LEFT = 'player_left'
+    PLAYER_READY_STATE = 'ready_state'
+    PLAYER_WORD = 'word'
+    PLAYER_MODE_VOTE = 'vote'
+    PLAYER_SWITCH_TEAM = 'switch_team'
+
+    SERVER_INITIAL_STATE = 'initial_state'
+    SERVER_PLAYERS_UPDATE = 'players_update'
+    SERVER_GAME_BEGINS = 'game_begins'
+    SERVER_START_GAME = 'start_game'
+    SERVER_NEW_WORD = 'new_word'
+    SERVER_GAME_OVER = 'game_over'
+    SERVER_MODES_AVAILABLE = 'modes_available'  # TODO: add event to asyncapi spec
+    SERVER_VOTES_UPDATE = 'votes_update'
+    SERVER_NEW_GAME = 'new_game'
+    SERVER_CLOSE_CONNECTION = 'close_connection'
+    SERVER_TICK = 'tick'
+    SERVER_ERROR = 'error'
+    # SERVER_USERNAME_SWITCH = 'username_switch'
+    SERVER_NEW_HOST = 'new_host'
+
+    TRIGGER_TICK = 'tick'
+
+    TARGET_ALL = 'all'
+    TARGET_PLAYER = 'player'
+
+    type: str
+    data: typing.Any
+    target: str = None
+
+    def is_valid(self):
+        # TODO: implement validation logic
+        return True
+
+    def to_dict(self) -> dict:
+        result = asdict(self)
+        result.pop('target')
+        return result
 
 
 @dataclass
@@ -109,3 +163,26 @@ class LocalTeam:
             raise TypeError('`is_winner` is expected to be boolean')
         for p in self.players:
             p.is_winner = value
+
+
+@dataclass
+class GameOptions:
+    WIN_CONDITION_BEST_SCORE = 'PointsCompetition'
+    WIN_CONDITION_BEST_TIME = 'Race'
+    WIN_CONDITION_SURVIVED = 'Survival'
+
+    game_duration: int = 60
+    win_condition: str = WIN_CONDITION_BEST_SCORE
+    team_mode: bool = False
+    speed_up_percent: float = 0.0
+    points_difference: int = 0
+    time_per_word: float = 0.0
+    strict_mode: bool = False
+    start_delay: float = 0.0
+
+
+# FIXME: get rid of this hack by updating every workstation python ver to 3.10
+# Issue discussed at --
+# https://stackoverflow.com/questions/70400639/
+# /how-do-i-get-python-dataclass-initvar-fields-to-work-with-typing-get-type-hints
+InitVar.__call__ = lambda *args: None

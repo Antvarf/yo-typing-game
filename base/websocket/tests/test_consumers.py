@@ -11,8 +11,8 @@ from channels.testing import WebsocketCommunicator
 
 from E.routing import application
 from base.websocket.consumers import GameConsumer
-from base.websocket.game_logic.events import Event
-from base.websocket.game_logic.helpers import get_tokens_for_user
+from base.websocket.game.core.types import Event
+from base.websocket.game.helpers import get_tokens_for_user
 from base.models import GameSession
 
 User = get_user_model()

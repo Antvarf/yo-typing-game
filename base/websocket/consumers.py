@@ -8,9 +8,9 @@ from django.contrib.auth.models import AnonymousUser
 from channels.consumer import SyncConsumer
 from channels.generic.websocket import JsonWebsocketConsumer
 
-from .game_logic.controllers import GameController, ControllerStorage
-from .game_logic.events import Event, PlayerMessage
-from .game_logic.exceptions import ControllerError, PlayerJoinRefusedError
+from base.websocket.game.core.controllers import GameController, ControllerStorage
+from .game.core.types import PlayerMessage, Event
+from base.websocket.game.core.exceptions import ControllerError, PlayerJoinRefusedError
 from base.models import (
     Player,
     GameSession,

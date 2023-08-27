@@ -9,7 +9,7 @@ from channels.consumer import SyncConsumer
 from channels.generic.websocket import JsonWebsocketConsumer
 
 from base.websocket.game.core.controllers import GameController, ControllerStorage
-from .game.core.types import PlayerMessage, Event
+from base.websocket.game.core.types import PlayerMessage, Event
 from base.websocket.game.core.exceptions import ControllerError, PlayerJoinRefusedError
 from base.models import (
     Player,
